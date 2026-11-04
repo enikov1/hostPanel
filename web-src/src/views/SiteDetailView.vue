@@ -107,23 +107,24 @@ watch(() => route.params.id, (v, old) => {
     <div v-else-if="!loaded" class="empty">Загрузка…</div>
 
     <template v-else-if="siteState.site">
-      <!-- хлебные крошки + заголовок -->
-      <div class="bread" style="margin-bottom:6px">
-        <router-link to="/sites" class="btn sm">← Сайты</router-link>
-        <span class="sep">›</span>
-        <span class="cur">{{ siteState.site.domain }}</span>
-        <span v-if="!siteState.site.enabled" class="pill warn">отключён</span>
-        <span v-if="siteState.site.maintenance" class="pill warn">обслуживание</span>
-        <span class="spacer"></span>
-        <button class="btn" @click="router.push('/sites')">Закрыть</button>
-        <button class="btn primary" :disabled="saving" @click="siteSave()">
-          <UiIcon name="check" :size="15" /> Сохранить</button>
-      </div>
-
-      <!-- вкладки -->
-      <div class="tabs" style="margin-bottom:12px">
-        <button v-for="t in visibleTabs" :key="t.id" class="tab"
-                :class="{ active: activeTab === t.id }" @click="setTab(t.id)">{{ t.t }}</button>
+      <!-- шапка карточки: прилипает под топбаром -->
+      <div class="site-head">
+        <div class="sh-row">
+          <router-link to="/sites" class="btn sm sh-back">← Сайты</router-link>
+          <span class="sh-name mono">{{ siteState.site.domain }}</span>
+          <span v-if="siteState.site.enabled && !siteState.site.maintenance"
+                class="pill ok">работает</span>
+          <span v-if="!siteState.site.enabled" class="pill warn">отключён</span>
+          <span v-if="siteState.site.maintenance" class="pill warn">обслуживание</span>
+          <span class="spacer"></span>
+          <button class="btn sh-act" @click="router.push('/sites')">Закрыть</button>
+          <button class="btn primary sh-act" :disabled="saving" @click="siteSave()">
+            <UiIcon name="check" :size="15" /> Сохранить</button>
+        </div>
+        <div class="tabs sh-tabs">
+          <button v-for="t in visibleTabs" :key="t.id" class="tab"
+                  :class="{ active: activeTab === t.id }" @click="setTab(t.id)">{{ t.t }}</button>
+        </div>
       </div>
 
       <TabOverview v-if="activeTab === 'main'" />
@@ -139,3 +140,21 @@ watch(() => route.params.id, (v, old) => {
     </template>
   </div>
 </template>
+
+<style scoped>
+.site-head { position: sticky; top: 60px; z-index: 25;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-lg); box-shadow: var(--shadow);
+  padding: 10px 16px 0; margin-bottom: 14px; }
+.sh-row { display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-2); }
+.sh-name { font-size: 16px; font-weight: 700; letter-spacing: .01em; }
+.sh-act { flex-shrink: 0; }
+.sh-tabs { padding: 8px 0 10px; margin: 0; }
+@media (max-width: 760px) {
+  .site-head { top: 0; }
+  .sh-row { gap: 7px; }
+  .sh-name { font-size: 14px; width: 100%; order: -1; }
+}
+</style>
