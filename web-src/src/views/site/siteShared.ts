@@ -27,7 +27,7 @@ export interface Site {
   docroot?: string;
   fpm?: { pm: string; max_children: number; start_servers: number; min_spare?: number; max_spare?: number };
   perf?: { gzip?: boolean; static_cache?: boolean; hsts?: boolean; http2?: boolean };
-  snippets?: { www_redirect?: boolean; admin_ip?: string; upload_size?: string };
+  snippets?: { www_redirect?: boolean; admin_path?: string; admin_ip?: string; upload_size?: string };
   [k: string]: any;
 }
 
@@ -65,7 +65,7 @@ export const siteState = reactive({
   f_fpm: { pm: 'dynamic', max_children: 10, start_servers: 3 },
   f_node: null as { enabled: boolean; version: string; port: number; script: string } | null,
   f_perf: { gzip: false, static_cache: false, hsts: false, http2: false },
-  f_snippets: { www_redirect: false, admin_ip: '', upload_size: '' },
+  f_snippets: { www_redirect: false, admin_path: 'admin', admin_ip: '', upload_size: '' },
   fpmReco: '',
 });
 
@@ -101,6 +101,7 @@ export function fillSiteState(s: Site, phpData: { versions: Record<string, strin
   const snip = s.snippets || {};
   siteState.f_snippets = {
     www_redirect: !!snip.www_redirect,
+    admin_path: snip.admin_path || 'admin',
     admin_ip: snip.admin_ip || '',
     upload_size: snip.upload_size || '',
   };
@@ -140,6 +141,7 @@ export function buildSaveBody(): Record<string, unknown> {
     },
     snippets: {
       www_redirect: siteState.f_snippets.www_redirect,
+      admin_path: siteState.f_snippets.admin_path,
       admin_ip: siteState.f_snippets.admin_ip,
       upload_size: siteState.f_snippets.upload_size,
     },

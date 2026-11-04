@@ -1,5 +1,7 @@
 <script setup lang="ts">
-/* ============ Вкладка «Основное» карточки сайта (stMainHtml) ============ */
+/* ============ Вкладка «Основное» карточки сайта ============
+   Настройки сгруппированы в карточки: Основное / Статус и обслуживание /
+   Домены и www / Скорость и кеш / Защита админки / Загрузки. */
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../../api/client';
@@ -7,8 +9,6 @@ import { toast, toastErr } from '../../lib/toast';
 import UiIcon from '../../components/UiIcon.vue';
 import AppModal from '../../components/AppModal.vue';
 import WizardSubdomain from './WizardSubdomain.vue';
-import UiSelect from '../../components/ui/UiSelect.vue';
-import UiCheckbox from '../../components/ui/UiCheckbox.vue';
 import { siteState, openSiteUrl, WEBSERVERS } from './siteShared';
 
 const router = useRouter();
@@ -57,68 +57,148 @@ function auditPillText(st: string): string {
 
 <template>
   <div v-if="siteState.site">
-    <div class="field">
-      <label>Домен</label>
-      <input type="text" :value="siteState.site.domain" disabled>
-    </div>
-    <div class="field">
-      <label>Корневая папка</label>
-      <input type="text" :value="siteState.site.docroot || ''" disabled>
-    </div>
-    <div class="field">
-      <label>Веб-сервер</label>
-      <UiSelect v-model="siteState.f_webserver"
-                :options="WEBSERVERS.map(w => ({ value: w[0], label: w[1] }))" />
-    </div>
-    <UiCheckbox v-model="siteState.f_enabled">
-      Сайт включён (при выключении показывает заглушку «Сайт отключён»)</UiCheckbox>
-    <UiCheckbox v-model="siteState.f_www">
-      Обслуживать www.домен — имя www войдёт в server_name и будет выпрашиваться в сертификате SSL</UiCheckbox>
+    <div class="split">
+      <!-- Основные -->
+      <div class="card" style="margin:0">
+        <div class="card-h"><span class="card-t">Основные</span></div>
+        <div class="field">
+          <label>Домен</label>
+          <input type="text" :value="siteState.site.domain" disabled>
+        </div>
+        <div class="field">
+          <label>Корневая папка</label>
+          <input type="text" :value="siteState.site.docroot || ''" disabled>
+        </div>
+        <div class="field">
+          <label>Веб-сервер</label>
+          <UiSelect v-model="siteState.f_webserver"
+                    :options="WEBSERVERS.map(w => ({ value: w[0], label: w[1] }))" />
+        </div>
+        <div class="row" style="flex-wrap:wrap;gap:8px;padding-top:4px">
+          <button class="btn" @click="router.push({ path: '/files', query: { path: siteState.site.docroot || '' } })">
+            <UiIcon name="folder" :size="15" /> Файлы сайта</button>
+          <button class="btn" @click="openSiteUrl(siteState.site.domain)">
+            <UiIcon name="ext" :size="15" /> Открыть сайт</button>
+        </div>
+        <div class="faint" style="font-size:11.5px;margin-top:8px">
+          Смена веб-сервера и применение настроек — кнопкой «Сохранить» в шапке.
+        </div>
+      </div>
 
-    <div class="row">
-      <button class="btn" @click="router.push({ path: '/files', query: { path: siteState.site.docroot || '' } })">
-        <UiIcon name="folder" :size="15" /> Файлы сайта</button>
-      <button class="btn" @click="subOpen = true">
-        <UiIcon name="plus" :size="15" /> Добавить поддомен</button>
-      <button class="btn" @click="openSiteUrl(siteState.site.domain)">
-        <UiIcon name="ext" :size="15" /> Открыть сайт</button>
+      <!-- Статус и обслуживание -->
+      <div class="card" style="margin:0">
+        <div class="card-h"><span class="card-t">Статус и обслуживание</span></div>
+        <UiCheckbox v-model="siteState.f_enabled">
+          Сайт включён
+          <span class="faint" style="display:block;font-size:12px;margin-top:2px">
+            Выключенный сайт показывает посетителям заглушку «Сайт отключён»
+            (HTTP 503). Файлы и настройки сохраняются.</span>
+        </UiCheckbox>
+        <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:10px">
+          <button class="btn" :class="siteState.site.maintenance ? 'danger' : ''" @click="toggleMaintenance()">
+            <UiIcon name="wrench" :size="15" />
+            {{ siteState.site.maintenance ? 'Выключить обслуживание' : 'Режим обслуживания (503)' }}</button>
+          <button class="btn" @click="siteAuditDlg()">
+            <UiIcon name="shield" :size="15" /> Проверка здоровья сайта</button>
+        </div>
+        <div v-if="siteState.site.maintenance" class="notice warn" style="margin-top:10px">
+          Сайт сейчас отдаёт HTTP 503 и страницу «ведутся работы».</div>
+        <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:10px">
+          <button class="btn" @click="subOpen = true">
+            <UiIcon name="plus" :size="15" /> Добавить поддомен</button>
+        </div>
+      </div>
     </div>
 
-    <div class="row" style="margin-top:14px">
-      <button class="btn" :class="siteState.site.maintenance ? 'danger' : ''" @click="toggleMaintenance()">
-        <UiIcon name="wrench" :size="15" />
-        {{ siteState.site.maintenance ? 'Выключить обслуживание' : 'Режим обслуживания (503)' }}</button>
-      <button class="btn" @click="siteAuditDlg()">
-        <UiIcon name="shield" :size="15" /> Проверка здоровья сайта</button>
-    </div>
-    <div v-if="siteState.site.maintenance" class="notice warn" style="margin-top:10px">
-      Сайт сейчас отдаёт HTTP 503 и страницу «ведутся работы».</div>
+    <div class="split" style="margin-top:12px">
+      <!-- Домены и www -->
+      <div class="card" style="margin:0">
+        <div class="card-h"><span class="card-t">Домены и www</span></div>
+        <UiCheckbox v-model="siteState.f_www">
+          <b>Включить www</b>
+          <span class="faint" style="display:block;font-size:12px;margin-top:2px">
+            Сайт будет открываться и по www-имени (www.ваш-домен). При сохранении панель
+            сама перевыпустит SSL-сертификат с www-именем (Let's Encrypt) —
+            придёт уведомление.</span>
+        </UiCheckbox>
+        <UiCheckbox v-model="siteState.f_snippets.www_redirect">
+          <b>Редирект www → без www</b>
+          <span class="faint" style="display:block;font-size:12px;margin-top:2px">
+            Посетители с www. автоматически попадают на основной домен.</span>
+        </UiCheckbox>
+        <div class="faint" style="font-size:11.5px;margin-top:6px">
+          Для SSL www-имя выдаётся только при включённом «www» выше (для
+          поддоменов www не выпускается).
+        </div>
+      </div>
 
-    <div class="g-title">Производительность (настройки nginx)</div>
-    <UiCheckbox v-model="siteState.f_perf.gzip">
-      Сжатие ответов (gzip) — страницы отдаются быстрее</UiCheckbox>
-    <UiCheckbox v-if="siteState.origWs !== 'nginx+node'" v-model="siteState.f_perf.static_cache">
-      Кэш картинок и стилей в браузере (30 дней)</UiCheckbox>
-    <template v-if="siteState.origHasSsl">
-      <UiCheckbox v-model="siteState.f_perf.hsts">
-        HSTS — браузер будет ходить на сайт только по HTTPS</UiCheckbox>
-      <UiCheckbox v-model="siteState.f_perf.http2">
-        HTTP/2 — ускорение загрузки при HTTPS</UiCheckbox>
-    </template>
-    <div class="faint" style="font-size:11.5px;margin-top:4px">Применится после «Сохранить». Конфиг проверяется nginx -t — при ошибке панель откатит изменения сама.</div>
-
-    <div class="g-title">Библиотека сниппетов (nginx)</div>
-    <UiCheckbox v-model="siteState.f_snippets.www_redirect">
-      Редирект www → без www</UiCheckbox>
-    <div class="field" style="margin:6px 0 0">
-      <label>Закрыть /admin по IP (через запятую, пусто — выключено)</label>
-      <input v-model="siteState.f_snippets.admin_ip" type="text" class="mono" placeholder="1.2.3.4, 5.6.7.8">
+      <!-- Скорость и кеш -->
+      <div class="card" style="margin:0">
+        <div class="card-h"><span class="card-t">Скорость и кеш (nginx)</span></div>
+        <UiCheckbox v-model="siteState.f_perf.gzip">
+          <b>Сжатие ответов (gzip)</b>
+          <span class="faint" style="display:block;font-size:12px;margin-top:2px">
+            Текстовые страницы и стили отдаются сжатыми — быстрее загрузка.</span>
+        </UiCheckbox>
+        <UiCheckbox v-if="siteState.origWs !== 'nginx+node'" v-model="siteState.f_perf.static_cache">
+          <b>Кеш статики в браузере (30 дней)</b>
+          <span class="faint" style="display:block;font-size:12px;margin-top:2px">
+            Картинки, стили и скрипты сохраняются в браузере посетителя и не
+            качаются повторно.</span>
+        </UiCheckbox>
+        <template v-if="siteState.origHasSsl">
+          <UiCheckbox v-model="siteState.f_perf.hsts">
+            <b>HSTS</b>
+            <span class="faint" style="display:block;font-size:12px;margin-top:2px">
+              Браузер будет ходить на сайт только по HTTPS (включать, когда
+              сертификат работает стабильно).</span>
+          </UiCheckbox>
+          <UiCheckbox v-model="siteState.f_perf.http2">
+            <b>HTTP/2</b>
+            <span class="faint" style="display:block;font-size:12px;margin-top:2px">
+              Ускоряет загрузку современных сайтов при HTTPS.</span>
+          </UiCheckbox>
+        </template>
+      </div>
     </div>
-    <div class="field" style="margin:6px 0 0">
-      <label>Максимум загрузки файлов (client_max_body_size)</label>
-      <UiSelect v-model="siteState.f_snippets.upload_size"
-                :options="['', '64m', '128m', '256m', '512m', '1g', '2g']
-                  .map(v => ({ value: v, label: v || 'по умолчанию (64m)' }))" />
+
+    <div class="split" style="margin-top:12px">
+      <!-- Защита админки -->
+      <div class="card" style="margin:0">
+        <div class="card-h"><span class="card-t">Защита админки по IP</span></div>
+        <div class="faint" style="font-size:12px;margin-bottom:8px">
+          Панель входа сайта (например /admin или /wp-admin) будет доступна
+          только с перечисленных IP-адресов, остальные получат 403.
+        </div>
+        <div class="field">
+          <label>Путь к админке (без слэшей по краям)</label>
+          <input v-model="siteState.f_snippets.admin_path" type="text" class="mono"
+                 placeholder="admin">
+        </div>
+        <div class="field">
+          <label>Разрешённые IP (через запятую, пусто — защита выключена)</label>
+          <input v-model="siteState.f_snippets.admin_ip" type="text" class="mono"
+                 placeholder="1.2.3.4, 5.6.7.8">
+        </div>
+      </div>
+
+      <!-- Загрузки -->
+      <div class="card" style="margin:0">
+        <div class="card-h"><span class="card-t">Загрузка файлов (nginx)</span></div>
+        <div class="field">
+          <label>Максимум загрузки файлов (client_max_body_size)</label>
+          <UiSelect v-model="siteState.f_snippets.upload_size"
+                    :options="['', '64m', '128m', '256m', '512m', '1g', '2g']
+                      .map(v => ({ value: v, label: v || 'по умолчанию (64m)' }))" />
+          <div class="faint" style="font-size:11.5px;margin-top:4px">
+            Ограничение на размер одного загружаемого файла: влияет на загрузку картинок, архивов и импорт дампов.
+          </div>
+        </div>
+        <div class="notice info" style="margin-top:8px">
+          Все настройки этой вкладки применяются кнопкой «Сохранить» в шапке:
+          конфиг проверяется nginx -t, при ошибке панель откатит изменения сама.
+        </div>
+      </div>
     </div>
 
     <!-- мастер поддомена -->

@@ -59,7 +59,8 @@ def default_perf():
 
 def default_snippets():
     """Библиотека nginx-сниппетов сайта."""
-    return {"www_redirect": False, "admin_ip": "", "upload_size": ""}
+    return {"www_redirect": False, "admin_path": "admin",
+            "admin_ip": "", "upload_size": ""}
 
 
 def pbkdf2(password, salt):

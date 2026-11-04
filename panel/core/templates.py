@@ -326,13 +326,21 @@ def write_site_configs(site, old_domain=None):
             ips = ", ".join(ip.strip() for ip in
                             snip["admin_ip"].replace(",", " ").split()
                             if ip.strip())
+            # путь админки настраивается (admin, wp-admin, administrator…)
+            import re as _re
+            apath = _re.sub(r"[^a-zA-Z0-9_\-/]", "",
+                            str(snip.get("admin_path") or "admin")).strip("/")
+            if not apath:
+                apath = "admin"
+            segs = [_re.escape(x) for x in apath.split("/") if x]
+            rx = "^/(?:%s)(?:/|$)" % "|".join(segs)
             snippet_blocks.append(
-                "    # HostPanel: /admin только с указанных IP\n"
-                "    location ~ ^/(?:admin|administrator)(?:/|$) {\n"
+                "    # HostPanel: /%s только с указанных IP\n"
+                "    location ~ %s {\n"
                 "        allow %s;\n"
                 "        deny all;\n"
                 "        try_files $uri $uri/ /index.php$is_args$args;\n"
-                "    }" % ips)
+                "    }" % (apath, rx, ips))
         upload_size = (snip.get("upload_size") or "").strip() or "64m"
         ssl = site.get("ssl") or {}
         ssl_listen = ""

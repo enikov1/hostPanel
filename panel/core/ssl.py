@@ -54,6 +54,18 @@ def issue(site, kind, email=""):
     code, out, err = run(args, timeout=180, as_root=True)
     ok = code == 0
     if ok:
+        # certbot кладёт серт в /etc/letsencrypt/live — копируем в панельную
+        # папку, на которую ссылается конфиг сайта
+        import shutil
+        live = "/etc/letsencrypt/live/" + domain
+        p = paths(domain)
+        os.makedirs(os.path.dirname(p["cert"]), exist_ok=True)
+        try:
+            shutil.copy(os.path.join(live, "fullchain.pem"), p["cert"])
+            shutil.copy(os.path.join(live, "privkey.pem"), p["key"])
+            os.chmod(p["key"], 0o600)
+        except OSError as e:
+            return False, "сертификат выпущен, но не скопирован: %s" % e
         domains = [domain] + (["www." + domain]
                               if site.get("www") and not site.get("parent")
                               else [])

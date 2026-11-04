@@ -297,8 +297,14 @@ def update_site(handler, body):
     for key in ("webserver", "php", "php_modules"):
         if key in body:
             site[key] = body[key]
+    www_reissue = False
     if "www" in body:
+        old_www = bool(site.get("www"))
         site["www"] = bool(body["www"])
+        # включили www у сайта с сертификатом — перевыпускаем его c www-именем
+        www_reissue = (site["www"] and not old_www and
+                       not site.get("parent") and
+                       (site.get("ssl") or {}).get("kind") == "letsencrypt")
     if "fpm" in body and site["fpm"]:
         site["fpm"].update(body["fpm"])
     if isinstance(body.get("perf"), dict):
@@ -320,6 +326,12 @@ def update_site(handler, body):
             if bad:
                 return err("некорректный IP: %s" % ", ".join(bad))
             snip["admin_ip"] = " ".join(ips[:20])
+        if "admin_path" in body["snippets"]:
+            import re as _re
+            ap = _re.sub(r"[^a-zA-Z0-9_\-/]", "",
+                         str(body["snippets"]["admin_path"] or "")
+                         ).strip("/")
+            snip["admin_path"] = ap[:100] or "admin"
         if "upload_size" in body["snippets"]:
             v = str(body["snippets"]["upload_size"] or "").strip()
             snip["upload_size"] = v if v in ("64m", "128m", "256m", "512m",
@@ -333,7 +345,26 @@ def update_site(handler, body):
         return err("конфиги не применены: %s" % errc, 500)
     if site.get("node", {}).get("enabled"):
         nodejs.apply(site, "restart")
-    return done("настройки сайта %s сохранены" % site["domain"])
+    msg = "настройки сайта %s сохранены" % site["domain"]
+    if www_reissue:
+        # certbot --expand в фоне: конфиг менять не нужно, серт обновится
+        # в панелиной папке и сайт продолжит работать со старым до готовности
+        import threading as _th
+        CTX.store.notify("Перевыпускаю сертификат %s с www-именем…"
+                         % site["domain"])
+
+        def _reissue():
+            oki, erri = ssl_mod.issue(site, "letsencrypt")
+            if oki:
+                CTX.store.notify("Сертификат %s перевыпущен с www" %
+                                 site["domain"])
+            else:
+                CTX.store.notify("Перевыпуск сертификата %s не удался: %s"
+                                 % (site["domain"], (erri or "")[:150]), "err")
+            CTX.store.save()
+        _th.Thread(target=_reissue, daemon=True).start()
+        msg += "; сертификат перевыпускается с www-именем (уведомление придёт)"
+    return done(msg)
 
 
 @post("/api/sites/toggle")
