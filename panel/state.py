@@ -77,8 +77,17 @@ def default_security():
         "ip_deny": [],
         "rate_limit": 0,          # запросов/сек, 0 = выключено
         "rate_burst": 20,
-        "block_bots": False,      # блокировать плохих ботов
+        "block_bots": False,      # блокировать плохих ботов (грубая галочка)
         "waf": False,             # базовый WAF (SQLi/XSS/скрытые файлы)
+        # --- WAF 2.0: тонкие правила ---
+        "geo_allow": [],          # страны, которым доступ разрешён
+        "geo_deny": [],           # страны, которым доступ запрещён
+        "ua_categories": [],      # id категорий ботов из config.BOT_CATEGORIES
+        "ua_rules": [],           # [{"pattern": "...", "note": "..."}]
+        "block_empty_ua": False,  # запросы без User-Agent
+        "ref_block": [],          # домены-источники, с которых не пускаем
+        "ref_allow": [],          # белый список источников (если непуст — только они)
+        "block_empty_ref": False, # запросы без Referer
     }
 
 

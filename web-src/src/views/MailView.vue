@@ -10,6 +10,7 @@ import { fmtDate } from '../lib/format';
 import UiIcon from '../components/UiIcon.vue';
 import AppModal from '../components/AppModal.vue';
 import PwField from '../components/PwField.vue';
+import UiSelect from '../components/ui/UiSelect.vue';
 
 const loaded = ref(false);
 const data = ref<any | null>(null);
@@ -292,10 +293,10 @@ onBeforeUnmount(() => { unmounted = true; });
       </div>
       <div class="field">
         <label>Домен</label>
-        <select v-model="boxDomain">
-          <option v-if="!domains.length" value="">— сначала добавьте домен —</option>
-          <option v-for="x in domains" :key="x.domain" :value="x.domain">{{ x.domain }}</option>
-        </select>
+        <UiSelect v-model="boxDomain"
+                  :options="!domains.length
+                    ? [{ value: '', label: '— сначала добавьте домен —' }]
+                    : domains.map((x: any) => ({ value: x.domain, label: x.domain }))" />
       </div>
       <PwField v-model="boxPass" label="Пароль (мин. 6 символов)" :gen="true"
                hint="Этот пароль вводится в почтовом клиенте. Скопируйте его кнопкой справа." />

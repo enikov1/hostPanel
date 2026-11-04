@@ -9,9 +9,11 @@ import { fmtSize } from '../lib/format';
 import { genPassword } from '../lib/pw';
 import { me } from '../stores';
 import UiIcon from '../components/UiIcon.vue';
+import BrandLogo from '../components/BrandLogo.vue';
 import AppModal from '../components/AppModal.vue';
 import PwField from '../components/PwField.vue';
 import CredRow from '../components/CredRow.vue';
+import UiCheckbox from '../components/ui/UiCheckbox.vue';
 import { pmaApps } from './software/pmaStore';
 import DiskCard from './site/DiskCard.vue';
 import WizardCreate from './site/WizardCreate.vue';
@@ -75,6 +77,13 @@ function dnsTitle(s: Site): string {
 }
 
 /* ---------- тексты ячеек ---------- */
+/** бренд логотипа по веб-серверу сайта (nginx+apache → apache, nginx+node → node) */
+function wsBrand(ws: string): string {
+  if (ws === 'nginx+node') return 'node';
+  if (ws === 'nginx+apache') return 'apache';
+  return ws || 'static';
+}
+
 function phpNodeText(s: Site): string {
   let t = s.php ? 'PHP ' + s.php : '';
   if (s.node && s.node.enabled) t = (t ? t + ' + ' : '') + 'Node ' + s.node.version;
@@ -283,8 +292,14 @@ onBeforeUnmount(() => { unmounted = true; });
                       {{ dnsInfo[s.id].state === 'loading' ? 'DNS…' : dnsInfo[s.id].state === 'ok' ? 'DNS ок' : 'DNS не настроен' }}
                     </span>
                   </td>
-                  <td>{{ wsLabel(s.webserver) }}</td>
-                  <td><span v-if="phpNodeText(s)">{{ phpNodeText(s) }}</span><span v-else class="faint">—</span></td>
+                  <td><BrandLogo :brand="wsBrand(s.webserver)" :size="14" fallback="globe" /> {{ wsLabel(s.webserver) }}</td>
+                  <td>
+                    <span v-if="phpNodeText(s)">
+                      <BrandLogo v-if="s.php" brand="php" :size="14" fallback="pkg" />
+                      <BrandLogo v-if="s.node && s.node.enabled" brand="node" :size="14" fallback="pkg" />
+                      {{ phpNodeText(s) }}</span>
+                    <span v-else class="faint">—</span>
+                  </td>
                   <td>
                     <span v-if="sslActive(s)" class="pill" :class="sslPillCls(s)">{{ sslPillText(s) }}</span>
                     <span v-else class="pill gray">нет</span>
@@ -315,8 +330,11 @@ onBeforeUnmount(() => { unmounted = true; });
                     <span v-if="!ch.enabled" class="pill warn">отключён</span>
                     <span v-if="ch.maintenance" class="pill warn">обслуж.</span>
                   </td>
-                  <td class="muted">{{ wsLabel(ch.webserver) }}</td>
-                  <td class="muted">{{ ch.php ? 'PHP ' + ch.php : '—' }}</td>
+                  <td class="muted"><BrandLogo :brand="wsBrand(ch.webserver)" :size="14" fallback="globe" /> {{ wsLabel(ch.webserver) }}</td>
+                  <td class="muted">
+                    <template v-if="ch.php"><BrandLogo brand="php" :size="14" fallback="pkg" /> PHP {{ ch.php }}</template>
+                    <template v-else>—</template>
+                  </td>
                   <td>
                     <span v-if="sslActive(ch)" class="pill ok">SSL</span>
                     <span v-else class="pill gray">нет</span>
@@ -404,8 +422,8 @@ onBeforeUnmount(() => { unmounted = true; });
               @close="pmaInstOpen = false">
       <div class="notice info">phpMyAdmin — веб-интерфейс для работы с базами данных.
         Скачивается с официального сайта и ставится в папку <b>/pma</b> этого сайта.</div>
-      <label class="check" style="margin:6px 0 4px">
-        <input v-model="pmaProtect" type="checkbox"> Закрыть папку паролем (рекомендуется)</label>
+      <UiCheckbox v-model="pmaProtect" style="margin:6px 0 4px">
+        Закрыть папку паролем (рекомендуется)</UiCheckbox>
       <div v-if="pmaProtect" class="field">
         <PwField v-model="pmaPass" label="Пароль папки /pma"
                  hint="Понадобится при входе в phpMyAdmin. Сохраните его." />

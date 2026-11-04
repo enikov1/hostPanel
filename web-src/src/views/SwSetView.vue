@@ -7,6 +7,9 @@ import { toast, toastErr } from '../lib/toast';
 import { confirmDlg } from '../lib/confirm';
 import { copyText } from '../lib/clipboard';
 import UiIcon from '../components/UiIcon.vue';
+import BrandLogo from '../components/BrandLogo.vue';
+import UiSelect from '../components/ui/UiSelect.vue';
+import UiCheckbox from '../components/ui/UiCheckbox.vue';
 import AppModal from '../components/AppModal.vue';
 import PwField from '../components/PwField.vue';
 import CodeEditor from '../components/CodeEditor.vue';
@@ -31,6 +34,21 @@ const router = useRouter();
 
 const loaded = ref(false);
 const entries = ref<any[]>([]);
+
+const q = ref('');
+const filtered = ref<any[]>([]);
+
+function applyFilter(): void {
+  const t = q.value.trim().toLowerCase();
+  if (!t) { filtered.value = entries.value; return; }
+  filtered.value = entries.value.filter((e: any) =>
+    e.name.toLowerCase().includes(t) ||
+    e.id.toLowerCase().includes(t) ||
+    (e.note || '').toLowerCase().includes(t));
+}
+
+const workingCount = (): number =>
+  entries.value.filter((e: any) => e.active === true).length;
 
 function groupsOf(list: any[]): string[] {
   const g: string[] = [];
@@ -61,6 +79,7 @@ async function load(): Promise<void> {
   try { d = await api('/api/swset'); }
   catch (e) { if (!loaded.value) toastErr(e); return; }
   entries.value = d.entries || [];
+  applyFilter();
   loaded.value = true;
   // подсветка/открытие по ?open=<id> (кнопка «Настройки» из каталога ПО)
   const hl = String(route.query.open || '');
@@ -201,34 +220,53 @@ onMounted(load);
       и здесь появятся их настройки.</div>
 
     <template v-else-if="entries.length">
-      <div class="toolbar">
-        <span class="muted" style="font-size:13px">Настройки установленных служб —
-          по одному модулю в отдельном окне. Перед каждым изменением панель делает копию конфига;
-          если служба с новым конфигом не поднимается — настройки откатываются автоматически.</span>
+      <div class="card" style="margin:0 0 14px;padding:12px 16px">
+        <div class="row" style="gap:12px;align-items:center;flex-wrap:wrap">
+          <div style="position:relative;flex:1;min-width:220px">
+            <input v-model="q" type="text" placeholder="Поиск: имя службы, id, описание…"
+                   autocomplete="off" @input="applyFilter()">
+          </div>
+          <span class="pill gray">модулей: {{ entries.length }}</span>
+          <span class="pill ok">работают: {{ workingCount() }}</span>
+        </div>
+        <div class="faint" style="font-size:11.5px;margin-top:8px">
+          Настройки каждой службы — в отдельном окне: нажмите на плитку. Перед изменением
+          панель делает копию конфига; если служба с новым конфигом не поднимается —
+          настройки откатываются автоматически.
+        </div>
       </div>
 
-      <template v-for="g in groupsOf(entries)" :key="g">
+      <template v-for="g in groupsOf(filtered)" :key="g">
         <div class="g-title">{{ g }}</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px">
-          <div v-for="e in entries.filter((x: any) => (x.group || 'Прочее') === g)" :key="e.id"
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px">
+          <div v-for="e in filtered.filter((x: any) => (x.group || 'Прочее') === g)" :key="e.id"
                class="card swset-tile" :id="'swset-' + e.id"
                :style="{ cursor: 'pointer', margin: 0,
-                         outline: highlight === e.id ? '2px solid var(--accent)' : '' }"
-               title="Открыть настройки" @click="swsetEntryDlg(e.id)">
+                         outline: highlight === e.id ? '2px solid var(--primary)' : '' }"
+               title="Открыть настройки" role="button" tabindex="0"
+               @click="swsetEntryDlg(e.id)"
+               @keydown.enter="swsetEntryDlg(e.id)">
             <div class="card-h">
-              <span style="width:26px;display:inline-block">
-                <UiIcon :name="tileIcon(e)" :size="18" /></span>
+              <span style="width:26px;display:inline-block;color:var(--primary)">
+                <BrandLogo :brand="e.id" :size="18" :fallback="tileIcon(e)" /></span>
               <span class="card-t">{{ e.name }}</span>
-              <span v-if="e.active === true" class="pill ok">работает</span>
-              <span v-else-if="e.active === false" class="pill err">остановлен</span>
+              <span v-if="e.active === true" class="pill ok" style="margin-left:auto">работает</span>
+              <span v-else-if="e.active === false" class="pill err" style="margin-left:auto">остановлен</span>
             </div>
             <div v-if="e.note" class="muted"
-                 style="font-size:12px;padding:0 6px 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">
+                 style="font-size:12px;padding:0 6px 6px;line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">
               {{ e.note }}</div>
-            <div class="faint" style="font-size:11.5px;padding:0 6px 6px">{{ tileCounts(e) }}</div>
+            <div class="faint" style="font-size:11.5px;padding:0 6px 6px;display:flex;gap:6px;flex-wrap:wrap">
+              <span v-if="e.fields.length" class="pill gray">параметров: {{ e.fields.length }}</span>
+              <span v-if="(e.files || []).filter((f: any) => f.path).length" class="pill gray">конфигов: {{ e.files.filter((f: any) => f.path).length }}</span>
+              <span v-if="e.passwords.length" class="pill gray">паролей: {{ e.passwords.length }}</span>
+            </div>
           </div>
         </div>
       </template>
+      <div v-if="!filtered.length" class="empty">
+        По запросу «{{ q }}» ничего не найдено. Сбросьте поиск.
+      </div>
     </template>
 
     <!-- настройки модуля -->
@@ -245,11 +283,9 @@ onMounted(load);
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px 14px;padding:6px 0 2px">
             <div v-for="f in curFields" :key="f.key" class="field" style="margin:0">
               <label>{{ f.label }}</label>
-              <select v-if="f.type === 'choice'" v-model="f.value" class="mono">
-                <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
-              </select>
-              <label v-else-if="f.type === 'bool'" style="display:flex;align-items:center;gap:8px;cursor:pointer">
-                <input v-model="f.value" type="checkbox"> включено</label>
+              <UiSelect v-if="f.type === 'choice'" v-model="f.value" class="mono"
+                        :options="f.options.map((o: string) => ({ value: o, label: o }))" />
+              <UiCheckbox v-else-if="f.type === 'bool'" v-model="f.value">включено</UiCheckbox>
               <input v-else-if="f.type === 'int' || f.type === 'float'" v-model="f.value" type="number"
                      class="mono" :step="f.type === 'float' ? '0.1' : '1'"
                      :min="f.min" :max="f.max">

@@ -11,6 +11,8 @@ import { copyText } from '../lib/clipboard';
 import UiIcon from '../components/UiIcon.vue';
 import AppModal from '../components/AppModal.vue';
 import PwField from '../components/PwField.vue';
+import UiSelect from '../components/ui/UiSelect.vue';
+import UiCheckbox from '../components/ui/UiCheckbox.vue';
 
 /* ---------- настройки панели ---------- */
 const settings = reactive({
@@ -57,6 +59,9 @@ const impPreview = ref('');
 const impReady = ref(false);
 const impReport = ref<string[]>([]);
 const impApplied = ref(false);
+
+/* ---------- табы страницы ---------- */
+const tab = ref<'general' | 'security' | 'notify' | 'maint'>('general');
 
 /* ---------- обновления панели (GitHub) ---------- */
 const upd = ref<any>(null);
@@ -357,224 +362,210 @@ onMounted(() => { load(); updCheck(true); });
 
 <template>
   <div v-table>
-    <div class="split">
-      <div>
-        <div class="card">
-          <div class="card-h"><span class="card-t">Панель</span></div>
-          <div class="kv">
-            <b>Версия</b><span>{{ me.version }}</span>
-            <b>Режим</b><span>{{ me.demo ? 'демо (изменения не влияют на систему)' : 'рабочий' }}</span>
-            <b>Домашняя папка</b><span class="mono">{{ me.home }}</span>
-            <b>Корень сайтов</b><span class="mono">{{ me.www_root }}</span>
-          </div>
-          <label style="margin-top:12px">Тема интерфейса</label>
-          <select v-model="settings.theme" @change="onThemeChange">
-            <option value="dark">тёмная</option>
-            <option value="light">светлая</option>
-          </select>
-          <label>Хранить резервных копий (шт.)</label>
-          <input v-model="settings.backup_retention" type="number">
-          <label>Порт панели (после смены перезапустите)</label>
-          <input v-model="settings.panel_port" type="number">
-          <label>Интервал проверок живучести, сек (15–3600)</label>
-          <input v-model="settings.health_interval" type="number">
-          <label class="check">
-            <input v-model="settings.fm_restricted" type="checkbox">
-            Ограничить файловый менеджер (/var/www, /etc/…, папка панели)
-          </label>
-          <label class="check">
-            <input v-model="expert" type="checkbox">
-            Режим «Эксперт» — показывать командную строку, SQL-консоль и редакторы конфигов
-          </label>
-          <label class="check">
-            <input v-model="settings.weekly_report_enabled" type="checkbox">
-            Еженедельный отчёт (понедельник 09:00, на e-mail/TG)
-          </label>
-          <label class="check">
-            <input v-model="settings.public_status" type="checkbox">
-            Публичная страница <span class="mono">/status</span> для внешних мониторингов (JSON без секретов)
-          </label>
-          <div class="faint" style="font-size:11.5px;margin-top:4px">По умолчанию включён «Простой» режим: скрыты инструменты для опытных, интерфейс короче.</div>
-          <button class="btn primary" style="margin-top:12px" @click="settingsSave()">
-            <UiIcon name="check" :size="15" /> Сохранить
-          </button>
+    <div class="tabs" style="margin-bottom:12px">
+      <button class="tab" :class="{ active: tab === 'general' }" @click="tab = 'general'">
+        <UiIcon name="gear" :size="14" /> Общие</button>
+      <button class="tab" :class="{ active: tab === 'security' }" @click="tab = 'security'">
+        <UiIcon name="lock" :size="14" /> Безопасность</button>
+      <button class="tab" :class="{ active: tab === 'notify' }" @click="tab = 'notify'">
+        <UiIcon name="bell" :size="14" /> Уведомления</button>
+      <button class="tab" :class="{ active: tab === 'maint' }" @click="tab = 'maint'">
+        <UiIcon name="wrench" :size="14" /> Обслуживание</button>
+    </div>
+    <div v-show="tab === 'general'">
+      <div class="split">
+        <div>
+                  <div class="card">
+                    <div class="card-h"><span class="card-t">Панель</span></div>
+                    <div class="kv">
+                      <b>Версия</b><span>{{ me.version }}</span>
+                      <b>Режим</b><span>{{ me.demo ? 'демо (изменения не влияют на систему)' : 'рабочий' }}</span>
+                      <b>Домашняя папка</b><span class="mono">{{ me.home }}</span>
+                      <b>Корень сайтов</b><span class="mono">{{ me.www_root }}</span>
+                    </div>
+                    <label style="margin-top:12px">Тема интерфейса</label>
+                    <UiSelect v-model="settings.theme" :options="[
+                      { value: 'dark', label: 'тёмная' },
+                      { value: 'light', label: 'светлая' }]" @change="onThemeChange" />
+                    <label>Хранить резервных копий (шт.)</label>
+                    <input v-model="settings.backup_retention" type="number">
+                    <label>Порт панели (после смены перезапустите)</label>
+                    <input v-model="settings.panel_port" type="number">
+                    <label>Интервал проверок живучести, сек (15–3600)</label>
+                    <input v-model="settings.health_interval" type="number">
+                    <UiCheckbox v-model="settings.fm_restricted">
+                      Ограничить файловый менеджер (/var/www, /etc/…, папка панели)
+                    </UiCheckbox>
+                    <UiCheckbox v-model="expert">
+                      Режим «Эксперт» — показывать командную строку, SQL-консоль и редакторы конфигов
+                    </UiCheckbox>
+                    <UiCheckbox v-model="settings.weekly_report_enabled">
+                      Еженедельный отчёт (понедельник 09:00, на e-mail/TG)
+                    </UiCheckbox>
+                    <UiCheckbox v-model="settings.public_status">
+                      Публичная страница <span class="mono">/status</span> для внешних мониторингов (JSON без секретов)
+                    </UiCheckbox>
+                    <div class="faint" style="font-size:11.5px;margin-top:4px">По умолчанию включён «Простой» режим: скрыты инструменты для опытных, интерфейс короче.</div>
+                    <button class="btn primary" style="margin-top:12px" @click="settingsSave()">
+                      <UiIcon name="check" :size="15" /> Сохранить
+                    </button>
+                  </div>
         </div>
-
-        <div class="card">
-          <div class="card-h"><span class="card-t">Обновления панели</span>
-            <span v-if="upd && upd.update_available" class="pill warn"
-                  style="margin-left:auto">доступна {{ upd.latest }}</span>
-            <span v-else-if="upd && !upd.error" class="pill ok"
-                  style="margin-left:auto">актуальна</span>
-          </div>
-          <div class="kv">
-            <b>Установлена</b><span class="mono">v{{ me.version }}</span>
-            <template v-if="upd && upd.latest">
-              <b>В репозитории</b><span class="mono">v{{ upd.latest }}</span>
-            </template>
-            <b>Источник</b><span class="mono">github.com/{{ upd ? upd.repo : 'enikov1/hostPanel' }}</span>
-          </div>
-          <div v-if="upd && upd.error" class="notice warn" style="margin-top:8px">
-            Не удалось проверить обновления: {{ upd.error }}. Проверьте интернет на сервере и попробуйте ещё раз.
-          </div>
-          <div v-if="upd && upd.task && upd.task.running" class="notice info" style="margin-top:8px">
-            Обновление выполняется — панель перезапустится автоматически…
-          </div>
-          <div v-if="upd && upd.task && upd.task.log && upd.task.log.length"
-               class="logbox" style="max-height:180px;margin-top:8px">{{ upd.task.log.join('\n') }}</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-            <button class="btn" :disabled="updBusy || (upd && upd.task && upd.task.running)"
-                    @click="updCheck()">
-              <UiIcon name="refresh" :size="15" /> {{ updBusy ? 'Проверяю…' : 'Проверить обновления' }}
-            </button>
-            <button v-if="upd && upd.update_available" class="btn primary"
-                    :disabled="upd && upd.task && upd.task.running"
-                    @click="updRun()">
-              <UiIcon name="up" :size="15" /> Обновить до v{{ upd.latest }}
-            </button>
-          </div>
-          <div class="faint" style="font-size:11.5px;margin-top:6px">
-            Перед заменой файлов панель сохраняет копию текущей версии; данные и настройки сайтов не затрагиваются.
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-h"><span class="card-t">Уведомления о проблемах</span></div>
-          <div class="faint" style="font-size:12.5px;line-height:1.55;margin-bottom:6px">Панель сообщит на e-mail и в Telegram, когда сайт перестанет отвечать, когда восстановится и по итогам каждого автобэкапа.</div>
-          <label class="check">
-            <input v-model="ntSec" type="checkbox">
-            О безопасности: входы в панель и блокировки fail2ban (Telegram)
-          </label>
-          <label class="check">
-            <input v-model="ntEmail.enabled" type="checkbox">
-            E-mail (письмо через SMTP)
-          </label>
-          <div v-show="ntEmail.enabled" style="margin:4px 0 8px">
-            <div class="field"><label>SMTP-сервер (например smtp.yandex.ru)</label><input v-model="ntEmail.host" type="text"></div>
-            <div class="field"><label>Порт (465 — SSL, 587 — STARTTLS)</label><input v-model="ntEmail.port" type="number"></div>
-            <div class="field"><label>Логин SMTP</label><input v-model="ntEmail.user" type="text"></div>
-            <div class="field"><label>Пароль SMTP (или пароль приложения)</label><input v-model="ntEmail.pass" type="password"></div>
-            <div class="field"><label>От кого (адрес в письме)</label><input v-model="ntEmail.from" type="text"></div>
-            <div class="field"><label>Кому присылать уведомления</label><input v-model="ntEmail.to" type="text"></div>
-          </div>
-          <label class="check">
-            <input v-model="ntTg.enabled" type="checkbox">
-            Telegram (бот)
-          </label>
-          <div v-show="ntTg.enabled" style="margin:4px 0 8px">
-            <div class="field"><label>Токен бота (от @BotFather)</label><input v-model="ntTg.token" type="text"></div>
-            <div class="field"><label>Chat ID (узнать у @userinfobot)</label><input v-model="ntTg.chat" type="text"></div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn primary" @click="notifySaveSafe()"><UiIcon name="check" :size="15" /> Сохранить</button>
-            <button class="btn" @click="notifyTest()"><UiIcon name="bell" :size="15" /> Отправить тест</button>
-          </div>
-          <div class="faint" style="font-size:12px;margin-top:6px">Тест отправит сообщение во все включённые каналы — удобно проверить настройки до сбоя.</div>
-        </div>
-
-        <div class="card">
-          <div class="card-h"><span class="card-t">Журнал панели (аудит)</span></div>
-          <div class="logbox" style="max-height:260px">{{ panelLog }}</div>
-        </div>
-      </div>
-
-      <div>
-        <div class="card">
-          <div class="card-h"><span class="card-t">Смена пароля администратора</span></div>
-          <form class="modal-form" @submit.prevent>
-            <div class="field">
-              <label>Текущий пароль</label>
-              <input v-model="pwOld" type="password" autocomplete="current-password">
-            </div>
-            <PwField v-model="pwNew" label="Новый пароль"
-                     hint="Минимум 8 символов. Нажмите кнопку генерации — надёжный пароль создастся сам, скопируйте его." />
-            <button class="btn primary" style="margin-top:10px" @click="changePass()">Сменить пароль</button>
-          </form>
-        </div>
-
-        <div class="card">
-          <div class="card-h"><span class="card-t">Безопасность входа</span></div>
-          <div class="row" style="align-items:center;gap:10px;padding:2px 0 8px">
-            <span class="muted" style="font-size:13px">Двухфакторная аутентификация (приложение-аутентификатор)</span>
-            <span v-if="totpOn" class="pill ok">включена</span>
-            <span v-else class="pill warn">выключена</span>
-            <button v-if="totpOn" class="btn sm" @click="totpDisableDlg()">Выключить</button>
-            <button v-else class="btn sm primary" @click="totpEnableDlg()">Включить</button>
-          </div>
-          <div class="faint" style="font-size:12px;line-height:1.55;margin-bottom:6px">Второй шаг защиты: кроме пароля нужен код из приложения (Google Authenticator, Яндекс.Ключ и т.п.). Панель доступна из интернета — с 2FA украденный пароль не даст войти.</div>
-          <b style="font-size:13px">Активные сессии</b>
-          <template v-if="sessions.length">
-            <div v-for="x in sessions" :key="x.sid"
-                 class="row" style="align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--border)">
-              <div style="flex:1;min-width:0">
-                <b>{{ shortUa(x.ua) }}</b>
-                <div class="muted" style="font-size:12px">{{ x.ip || '' }}<template v-if="seenWhen(x)"> · активность {{ seenWhen(x) }}</template></div>
-              </div>
-              <span v-if="x.sid === curSid" class="pill ok">это вы</span>
-              <button v-else class="btn sm" @click="sessionDrop(x.sid)">Завершить</button>
-            </div>
-          </template>
-          <div v-else class="empty">Нет активных сессий</div>
-          <div style="margin-top:8px">
-            <button class="btn" @click="dropOtherSessions()"><UiIcon name="logout" :size="14" /> Выйти на всех других устройствах</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-h"><span class="card-t">Перенос на другой сервер</span></div>
-          <div class="faint" style="font-size:12.5px;line-height:1.6;margin-bottom:8px">Файл настроек содержит: параметры панели, задачи планировщика, список сайтов (без файлов), почтовые домены и адреса ящиков, настройки уведомлений. Пароли баз и ящиков панель не хранит — их задаёте заново; SSL-сертификаты выпустите на новом сервере. Файл содержит пароль SMTP и ключ 2FA — храните бережно.</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn primary" @click="exportSettings()"><UiIcon name="down" :size="15" /> Скачать настройки</button>
-            <button class="btn" @click="importDlg()"><UiIcon name="up" :size="15" /> Импортировать из файла</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-h"><span class="card-t">Перезагрузка сервера</span></div>
-          <div style="font-size:13px;line-height:1.6;color:var(--muted)">Полная перезагрузка сервера: панель и сайты будут недоступны 1–2 минуты.</div>
-          <button class="btn danger" style="margin-top:10px" @click="serverRebootDlg()"><UiIcon name="refresh" :size="15" /> Перезагрузить сервер</button>
-        </div>
-
-        <div id="disk-card" class="card">
-          <template v-if="disk && disk.demo">
-            <div class="card-h"><span class="card-t">Диск</span></div>
-            <div class="notice info">демо-данные — на рабочем сервере здесь будет разбор занятого места</div>
-          </template>
-          <template v-else-if="disk">
-            <div class="card-h">
-              <span class="card-t">Диск</span>
-              <span class="card-spacer"></span>
-              <span class="pill" :class="disk.percent > 85 ? 'err' : disk.percent > 70 ? 'warn' : 'ok'">занято {{ disk.percent }}% · {{ disk.used_gb }} из {{ disk.total_gb }} ГБ</span>
-            </div>
-            <div style="padding:6px 8px">
-              <div v-for="(t, i) in (disk.top || [])" :key="i"
-                   class="row" style="align-items:center;gap:10px;padding:3px 0">
-                <span style="width:200px" :title="t.path">{{ t.label }}</span>
-                <b style="width:90px;text-align:right">{{ t.gb }} ГБ</b>
-                <span class="muted faint" style="font-size:11.5px">{{ t.path }}</span>
-              </div>
-            </div>
-            <div class="row" style="padding:0 8px 10px;flex-wrap:wrap;gap:6px">
-              <button v-if="disk.cleanable && disk.cleanable.apt" class="btn sm" @click="diskClean('apt')">Очистить кэш apt</button>
-              <button v-if="disk.cleanable && disk.cleanable.journal" class="btn sm" @click="diskClean('journal')">Урезать журнал (7 дней)</button>
-              <button v-if="disk.cleanable && disk.cleanable.tmp" class="btn sm" @click="diskClean('tmp')">Очистить tmp панели</button>
-              <button v-if="disk.cleanable && disk.cleanable.backups" class="btn sm" @click="diskClean('backups')">Удалить старые копии</button>
-            </div>
-          </template>
-          <div v-else class="card-h"><span class="card-t">Диск: куда уходит место</span></div>
-        </div>
-
-        <div class="card">
-          <div class="card-h"><span class="card-t">Как это работает</span></div>
-          <div style="font-size:13px;line-height:1.7;color:var(--muted)">
-            Рабочий режим: панель запускается от root (обычно как systemd-служба hostpanel) и управляет nginx, Apache, PHP-FPM, systemd, certbot и MySQL напрямую. Все изменения конфигов валидируются (nginx -t и т.п.) и откатываются при ошибке, каждая операция пишется в журнал аудита.<br><br>
-            Демо-режим: полностью безопасен, конфиги не трогаются, а сайты, логи и статистика создаются в домашней папке панели.
-          </div>
+        <div>
+                  <div class="card">
+                    <div class="card-h"><span class="card-t">Обновления панели</span>
+                      <span v-if="upd && upd.update_available" class="pill warn"
+                            style="margin-left:auto">доступна {{ upd.latest }}</span>
+                      <span v-else-if="upd && !upd.error" class="pill ok"
+                            style="margin-left:auto">актуальна</span>
+                    </div>
+                    <div class="kv">
+                      <b>Установлена</b><span class="mono">v{{ me.version }}</span>
+                      <template v-if="upd && upd.latest">
+                        <b>В репозитории</b><span class="mono">v{{ upd.latest }}</span>
+                      </template>
+                      <b>Источник</b><span class="mono">github.com/{{ upd ? upd.repo : 'enikov1/hostPanel' }}</span>
+                    </div>
+                    <div v-if="upd && upd.error" class="notice warn" style="margin-top:8px">
+                      Не удалось проверить обновления: {{ upd.error }}. Проверьте интернет на сервере и попробуйте ещё раз.
+                    </div>
+                    <div v-if="upd && upd.task && upd.task.running" class="notice info" style="margin-top:8px">
+                      Обновление выполняется — панель перезапустится автоматически…
+                    </div>
+                    <div v-if="upd && upd.task && upd.task.log && upd.task.log.length"
+                         class="logbox" style="max-height:180px;margin-top:8px">{{ upd.task.log.join('\n') }}</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+                      <button class="btn" :disabled="updBusy || (upd && upd.task && upd.task.running)"
+                              @click="updCheck()">
+                        <UiIcon name="refresh" :size="15" /> {{ updBusy ? 'Проверяю…' : 'Проверить обновления' }}
+                      </button>
+                      <button v-if="upd && upd.update_available" class="btn primary"
+                              :disabled="upd && upd.task && upd.task.running"
+                              @click="updRun()">
+                        <UiIcon name="up" :size="15" /> Обновить до v{{ upd.latest }}
+                      </button>
+                    </div>
+                    <div class="faint" style="font-size:11.5px;margin-top:6px">
+                      Перед заменой файлов панель сохраняет копию текущей версии; данные и настройки сайтов не затрагиваются.
+                    </div>
+                  </div>
         </div>
       </div>
     </div>
+    <div v-show="tab === 'security'">
+              <div class="card">
+                <div class="card-h"><span class="card-t">Смена пароля администратора</span></div>
+                <form class="modal-form" @submit.prevent>
+                  <div class="field">
+                    <label>Текущий пароль</label>
+                    <input v-model="pwOld" type="password" autocomplete="current-password">
+                  </div>
+                  <PwField v-model="pwNew" label="Новый пароль"
+                           hint="Минимум 8 символов. Нажмите кнопку генерации — надёжный пароль создастся сам, скопируйте его." />
+                  <button class="btn primary" style="margin-top:10px" @click="changePass()">Сменить пароль</button>
+                </form>
+              </div>
+              <div class="card">
+                <div class="card-h"><span class="card-t">Безопасность входа</span></div>
+                <div class="row" style="align-items:center;gap:10px;padding:2px 0 8px">
+                  <span class="muted" style="font-size:13px">Двухфакторная аутентификация (приложение-аутентификатор)</span>
+                  <span v-if="totpOn" class="pill ok">включена</span>
+                  <span v-else class="pill warn">выключена</span>
+                  <button v-if="totpOn" class="btn sm" @click="totpDisableDlg()">Выключить</button>
+                  <button v-else class="btn sm primary" @click="totpEnableDlg()">Включить</button>
+                </div>
+                <div class="faint" style="font-size:12px;line-height:1.55;margin-bottom:6px">Второй шаг защиты: кроме пароля нужен код из приложения (Google Authenticator, Яндекс.Ключ и т.п.). Панель доступна из интернета — с 2FA украденный пароль не даст войти.</div>
+                <b style="font-size:13px">Активные сессии</b>
+                <template v-if="sessions.length">
+                  <div v-for="x in sessions" :key="x.sid"
+                       class="row" style="align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--border)">
+                    <div style="flex:1;min-width:0">
+                      <b>{{ shortUa(x.ua) }}</b>
+                      <div class="muted" style="font-size:12px">{{ x.ip || '' }}<template v-if="seenWhen(x)"> · активность {{ seenWhen(x) }}</template></div>
+                    </div>
+                    <span v-if="x.sid === curSid" class="pill ok">это вы</span>
+                    <button v-else class="btn sm" @click="sessionDrop(x.sid)">Завершить</button>
+                  </div>
+                </template>
+                <div v-else class="empty">Нет активных сессий</div>
+                <div style="margin-top:8px">
+                  <button class="btn" @click="dropOtherSessions()"><UiIcon name="logout" :size="14" /> Выйти на всех других устройствах</button>
+                </div>
+              </div>
+    </div>
+    <div v-show="tab === 'notify'">
+              <div class="card">
+                <div class="card-h">
+                  <span class="card-t">Уведомления о проблемах</span>
+                  <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
+                    <img src="/logos/mail.svg" width="18" height="18" alt="mail" title="E-mail">
+                    <img src="/logos/telegram.svg" width="18" height="18" alt="Telegram" title="Telegram">
+                  </span>
+                </div>
+                <div class="faint" style="font-size:12.5px;line-height:1.55;margin-bottom:6px">Панель сообщит на e-mail и в Telegram, когда сайт перестанет отвечать, когда восстановится и по итогам каждого автобэкапа.</div>
+                <UiCheckbox v-model="ntSec">
+                  О безопасности: входы в панель и блокировки fail2ban (Telegram)
+                </UiCheckbox>
+                <UiCheckbox v-model="ntEmail.enabled">
+                  <img src="/logos/mail.svg" width="15" height="15" style="vertical-align:-3px;margin-right:4px">
+                  E-mail (письмо через SMTP)
+                </UiCheckbox>
+                <div v-show="ntEmail.enabled" style="margin:4px 0 8px">
+                  <div class="field"><label>SMTP-сервер (например smtp.yandex.ru)</label><input v-model="ntEmail.host" type="text"></div>
+                  <div class="field"><label>Порт (465 — SSL, 587 — STARTTLS)</label><input v-model="ntEmail.port" type="number"></div>
+                  <div class="field"><label>Логин SMTP</label><input v-model="ntEmail.user" type="text"></div>
+                  <div class="field"><label>Пароль SMTP (или пароль приложения)</label><input v-model="ntEmail.pass" type="password"></div>
+                  <div class="field"><label>От кого (адрес в письме)</label><input v-model="ntEmail.from" type="text"></div>
+                  <div class="field"><label>Кому присылать уведомления</label><input v-model="ntEmail.to" type="text"></div>
+                </div>
+                <UiCheckbox v-model="ntTg.enabled">
+                  <img src="/logos/telegram.svg" width="15" height="15" style="vertical-align:-3px;margin-right:4px">
+                  Telegram (бот)
+                </UiCheckbox>
+                <div v-show="ntTg.enabled" style="margin:4px 0 8px">
+                  <div class="field"><label>Токен бота (от @BotFather)</label><input v-model="ntTg.token" type="text"></div>
+                  <div class="field"><label>Chat ID (узнать у @userinfobot)</label><input v-model="ntTg.chat" type="text"></div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn primary" @click="notifySaveSafe()"><UiIcon name="check" :size="15" /> Сохранить</button>
+                  <button class="btn" @click="notifyTest()"><UiIcon name="bell" :size="15" /> Отправить тест</button>
+                </div>
+                <div class="faint" style="font-size:12px;margin-top:6px">Тест отправит сообщение во все включённые каналы — удобно проверить настройки до сбоя.</div>
+              </div>
+    </div>
+    <div v-show="tab === 'maint'">
+              <div class="card">
+                <div class="card-h"><span class="card-t">Журнал панели (аудит)</span></div>
+                <div class="logbox" style="max-height:260px">{{ panelLog }}</div>
+              </div>
+              <div class="card">
+                <div class="card-h"><span class="card-t">Перенос на другой сервер</span></div>
+                <div class="faint" style="font-size:12.5px;line-height:1.6;margin-bottom:8px">Файл настроек содержит: параметры панели, задачи планировщика, список сайтов (без файлов), почтовые домены и адреса ящиков, настройки уведомлений. Пароли баз и ящиков панель не хранит — их задаёте заново; SSL-сертификаты выпустите на новом сервере. Файл содержит пароль SMTP и ключ 2FA — храните бережно.</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn primary" @click="exportSettings()"><UiIcon name="down" :size="15" /> Скачать настройки</button>
+                  <button class="btn" @click="importDlg()"><UiIcon name="up" :size="15" /> Импортировать из файла</button>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-h"><span class="card-t">Перезагрузка сервера</span></div>
+                <div style="font-size:13px;line-height:1.6;color:var(--muted)">Полная перезагрузка сервера: панель и сайты будут недоступны 1–2 минуты.</div>
+                <button class="btn danger" style="margin-top:10px" @click="serverRebootDlg()"><UiIcon name="refresh" :size="15" /> Перезагрузить сервер</button>
+              </div>
+              <div class="card">
+                <div class="card-h"><span class="card-t">Перезагрузка сервера</span></div>
+                <div style="font-size:13px;line-height:1.6;color:var(--muted)">Полная перезагрузка сервера: панель и сайты будут недоступны 1–2 минуты.</div>
+                <button class="btn danger" style="margin-top:10px" @click="serverRebootDlg()"><UiIcon name="refresh" :size="15" /> Перезагрузить сервер</button>
+              </div>
+              <div class="card">
+                <div class="card-h"><span class="card-t">Как это работает</span></div>
+                <div style="font-size:13px;line-height:1.7;color:var(--muted)">
+                  Рабочий режим: панель запускается от root (обычно как systemd-служба hostpanel) и управляет nginx, Apache, PHP-FPM, systemd, certbot и MySQL напрямую. Все изменения конфигов валидируются (nginx -t и т.п.) и откатываются при ошибке, каждая операция пишется в журнал аудита.<br><br>
+                  Демо-режим: полностью безопасен, конфиги не трогаются, а сайты, логи и статистика создаются в домашней папке панели.
+                </div>
+              </div>
+    </div>
+  </div>
 
-    <!-- 2FA: включение -->
     <AppModal :open="totpDlg" title="Включить двухфакторную аутентификацию" wide @close="totpDlg = false">
       <div class="faint" style="font-size:13px;line-height:1.6;margin-bottom:8px">
         1. Откройте приложение-аутентификатор и отсканируйте код (или введите ключ вручную).<br>
@@ -629,5 +620,4 @@ onMounted(() => { load(); updCheck(true); });
         <button class="btn" @click="impDlg = false">Отмена</button>
       </template>
     </AppModal>
-  </div>
 </template>

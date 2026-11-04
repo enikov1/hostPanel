@@ -8,6 +8,8 @@ import { useRouter } from 'vue-router';
 import { api } from '../../api/client';
 import { toast, toastErr } from '../../lib/toast';
 import UiIcon from '../../components/UiIcon.vue';
+import UiSelect from '../../components/ui/UiSelect.vue';
+import UiCheckbox from '../../components/ui/UiCheckbox.vue';
 import { siteState } from './siteShared';
 
 const router = useRouter();
@@ -120,9 +122,8 @@ async function stFpmReco(): Promise<void> {
   <div v-if="siteState.site">
     <div class="field">
       <label>Версия PHP</label>
-      <select v-model="siteState.f_php">
-        <option v-for="v in siteState.phpVersions" :key="v" :value="v">PHP {{ v }}</option>
-      </select>
+      <UiSelect v-model="siteState.f_php"
+                :options="siteState.phpVersions.map(v => ({ value: v, label: 'PHP ' + v }))" />
     </div>
 
     <div class="g-title">Модули PHP (для версии {{ siteState.f_php || '—' }})</div>
@@ -131,19 +132,17 @@ async function stFpmReco(): Promise<void> {
       в PHP, помечены зелёным — их отключать здесь не нужно.
     </div>
     <div style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:10px">
-      <label v-for="m in siteState.modAvail" :key="'en-' + m" class="check" style="margin:4px 0">
-        <input type="checkbox" checked disabled> {{ m }}
-        <span class="pill ok" style="margin-left:6px">включён</span>
+      <UiCheckbox v-for="m in siteState.modAvail" :key="'en-' + m" style="margin:4px 0"
+                  :model-value="true" :disabled="true">
+        {{ m }} <span class="pill ok" style="margin-left:6px">включён</span>
         <span v-if="siteState.moduleNames[m]" class="faint">— {{ siteState.moduleNames[m] }}</span>
-      </label>
-      <label v-for="m in newModules" :key="'new-' + m" class="check" style="margin:4px 0">
-        <input type="checkbox" :checked="selectedNew.includes(m)"
-               :disabled="installing"
-               @change="toggleNew(m, ($event.target as HTMLInputElement).checked)">
-        {{ m }}
-        <span class="pill gray" style="margin-left:6px">не установлен</span>
+      </UiCheckbox>
+      <UiCheckbox v-for="m in newModules" :key="'new-' + m" style="margin:4px 0"
+                  :model-value="selectedNew.includes(m)" :disabled="installing"
+                  @update:model-value="(v) => toggleNew(m, v)">
+        {{ m }} <span class="pill gray" style="margin-left:6px">не установлен</span>
         <span v-if="siteState.moduleNames[m]" class="faint">— {{ siteState.moduleNames[m] }}</span>
-      </label>
+      </UiCheckbox>
       <div v-if="!siteState.modAvail.length && !newModules.length" class="empty">
         Список модулей недоступен
       </div>
@@ -175,9 +174,8 @@ async function stFpmReco(): Promise<void> {
     <div class="row">
       <div class="field" style="flex:1">
         <label>Режим работы</label>
-        <select v-model="siteState.f_fpm.pm">
-          <option v-for="m in ['dynamic', 'static', 'ondemand']" :key="m" :value="m">{{ m }}</option>
-        </select>
+        <UiSelect v-model="siteState.f_fpm.pm"
+                  :options="['dynamic', 'static', 'ondemand'].map(m => ({ value: m, label: m }))" />
         <div class="faint" style="font-size:11.5px;margin-top:4px">
           {{ PM_MODES[siteState.f_fpm.pm] || '' }}
         </div>

@@ -7,6 +7,8 @@ import { toast, toastErr } from '../../lib/toast';
 import UiIcon from '../../components/UiIcon.vue';
 import AppModal from '../../components/AppModal.vue';
 import CredRow from '../../components/CredRow.vue';
+import UiSelect from '../../components/ui/UiSelect.vue';
+import UiCheckbox from '../../components/ui/UiCheckbox.vue';
 import { WEBSERVERS, openSiteUrl } from './siteShared';
 
 const props = defineProps<{ open: boolean }>();
@@ -95,25 +97,22 @@ watch(() => props.open, (v) => { if (v) resetForm(); });
       <label>Домен (адрес сайта)</label>
       <input v-model="domain" type="text" placeholder="например, mysite.ru" autofocus>
     </div>
-    <label class="check"><input v-model="www" type="checkbox"> Обслуживать также адрес с www
-      (www.домен войдёт в server_name и в сертификат SSL)</label>
+    <UiCheckbox v-model="www"> Обслуживать также адрес с www
+      (www.домен войдёт в server_name и в сертификат SSL)</UiCheckbox>
     <div class="field">
       <label>На чём работает сайт</label>
-      <select v-model="ws">
-        <option v-for="w in WEBSERVERS" :key="w[0]" :value="w[0]">{{ w[1] }}</option>
-      </select>
+      <UiSelect v-model="ws" :options="WEBSERVERS.map(w => ({ value: w[0], label: w[1] }))" />
       <div class="faint" style="font-size:11.5px;margin-top:4px">Если не знаете, что выбрать — оставьте как есть.</div>
     </div>
     <div v-if="phpBlock" class="field">
       <label>Версия PHP</label>
-      <select v-model="php">
-        <option v-for="v in phpVersions" :key="v" :value="v">PHP {{ v }}</option>
-      </select>
+      <UiSelect v-model="php" :options="phpVersions.map(v => ({ value: v, label: 'PHP ' + v }))" />
     </div>
     <div v-if="nodeBlock">
       <div class="row">
         <div class="field" style="flex:1"><label>Версия Node.js</label>
-          <select v-model="nodeV"><option>20</option><option>18</option><option>22</option></select></div>
+          <UiSelect v-model="nodeV"
+                    :options="[{ value: '20', label: '20' }, { value: '18', label: '18' }, { value: '22', label: '22' }]" /></div>
         <div class="field" style="flex:1"><label>Порт приложения</label>
           <input v-model.number="nodeP" type="number"></div>
         <div class="field" style="flex:1"><label>Файл запуска</label>
@@ -122,23 +121,20 @@ watch(() => props.open, (v) => { if (v) resetForm(); });
     </div>
     <div class="field">
       <label>Защита соединения (SSL)</label>
-      <select v-model="sslKind">
-        <option value="none">Пока без SSL — можно включить позже</option>
-        <option value="letsencrypt">Бесплатный сертификат Let's Encrypt (нужен работающий домен)</option>
-        <option value="selfsigned">Самоподписанный (для тестов)</option>
-      </select>
+      <UiSelect v-model="sslKind"
+                :options="[{ value: 'none', label: 'Пока без SSL — можно включить позже' },
+                  { value: 'letsencrypt', label: 'Бесплатный сертификат Let\'s Encrypt (нужен работающий домен)' },
+                  { value: 'selfsigned', label: 'Самоподписанный (для тестов)' }]" />
     </div>
     <div v-if="sslKind === 'letsencrypt'" class="field">
       <label>E-mail для сертификата</label>
       <input v-model="email" type="email" placeholder="admin@example.ru">
     </div>
-    <label class="check"><input v-model="createDb" type="checkbox">
-      Создать базу данных (нужна для WordPress, магазинов и т.п.)</label>
+    <UiCheckbox v-model="createDb">
+      Создать базу данных (нужна для WordPress, магазинов и т.п.)</UiCheckbox>
     <div v-if="engBlock" class="field">
       <label>Тип базы</label>
-      <select v-model="dbEng">
-        <option v-for="e in engines" :key="e.id" :value="e.id">{{ e.name }}</option>
-      </select>
+      <UiSelect v-model="dbEng" :options="engines.map(e => ({ value: e.id, label: e.name }))" />
       <div class="faint" style="font-size:11.5px;margin-top:4px">MariaDB подходит большинству сайтов (WordPress, Opencart); PostgreSQL — если приложение требует именно её.</div>
     </div>
     <div class="notice info">Всё остальное — папка сайта, настройки веб-сервера — создастся автоматически.</div>

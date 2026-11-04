@@ -940,13 +940,56 @@ def save_security(handler, body):
         return err("лимит запросов должен быть числом")
     if not (0 <= rate <= 10000) or not (1 <= burst <= 10000):
         return err("лимит запросов вне допустимого диапазона")
-    if updates.get("geo_mode") in ("allow", "deny") and not countries:
+    # --- WAF 2.0: комбинированные гео-списки ---
+    geo_allow = [c.upper() for c in (updates.get("geo_allow") or [])]
+    geo_deny = [c.upper() for c in (updates.get("geo_deny") or [])]
+    for c in geo_allow + geo_deny:
+        if not utils.valid_country(c) or c not in config.COUNTRIES:
+            return err("неизвестная страна: %s" % c)
+    if "geo_allow" in updates or "geo_deny" in updates:
+        # новая схема: оба списка пусты = гео-фильтр выключен
+        sec.pop("geo_mode", None)
+        sec.pop("geo_countries", None)
+    elif updates.get("geo_mode") in ("allow", "deny") and not countries:
         return err("выберите хотя бы одну страну")
+
+    # --- WAF 2.0: категории ботов и UA-правила ---
+    ua_categories = [str(c) for c in (updates.get("ua_categories") or [])]
+    for c in ua_categories:
+        if c not in config.BOT_CATEGORIES:
+            return err("неизвестная категория ботов: %s" % c)
+    import re as _re
+    ua_rules = []
+    for r in (updates.get("ua_rules") or [])[:100]:
+        pat = str(r.get("pattern") or "").strip()
+        if not pat:
+            continue
+        if len(pat) > 150 or '"' in pat or "\\" in pat or "{" in pat:
+            return err("недопустимый шаблон User-Agent: %s" % pat[:60])
+        try:
+            _re.compile(pat)
+        except _re.error:
+            return err("некорректный regex в User-Agent: %s" % pat[:60])
+        ua_rules.append({"pattern": pat,
+                         "note": str(r.get("note") or "")[:200]})
+    ref_block = [d.strip().lower() for d in
+                 (updates.get("ref_block") or [])[:200] if d.strip()]
+    ref_allow = [d.strip().lower() for d in
+                 (updates.get("ref_allow") or [])[:200] if d.strip()]
+    for d in ref_block + ref_allow:
+        if not utils.valid_domain(d):
+            return err("некорректный домен источника: %s" % d)
+    block_empty_ua = bool(updates.get("block_empty_ua"))
+    block_empty_ref = bool(updates.get("block_empty_ref"))
+
     # применение
     if "geo_mode" in updates:
         sec["geo_mode"] = updates["geo_mode"]
     if "geo_countries" in updates:
         sec["geo_countries"] = countries
+    if "geo_allow" in updates:
+        sec["geo_allow"] = geo_allow[:100]
+        sec["geo_deny"] = geo_deny[:100]
     if "ip_allow" in updates:
         sec["ip_allow"] = ip_allow[:200]
     if "ip_deny" in updates:
@@ -959,6 +1002,14 @@ def save_security(handler, body):
         sec["block_bots"] = bool(updates["block_bots"])
     if "waf" in updates:
         sec["waf"] = bool(updates["waf"])
+    if "ua_categories" in updates:
+        sec["ua_categories"] = ua_categories
+        sec["ua_rules"] = ua_rules
+        sec["block_empty_ua"] = block_empty_ua
+    if "ref_block" in updates:
+        sec["ref_block"] = ref_block
+        sec["ref_allow"] = ref_allow
+        sec["block_empty_ref"] = block_empty_ref
     okc, errc = security.apply_security(site)
     if not okc:
         return err("фильтры не применены: %s" % errc, 500)
@@ -973,6 +1024,8 @@ def get_security(handler, qs, sid):
     from ..state import default_security
     sec = site.setdefault("security", default_security())
     return ok(security=sec, countries=config.COUNTRIES,
+              bot_categories={cid: {"name": cat[1], "desc": cat[2]}
+                              for cid, cat in config.BOT_CATEGORIES.items()},
               geo_available=security.geo_module_available())
 
 

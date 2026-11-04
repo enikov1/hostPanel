@@ -60,12 +60,25 @@ async function refreshBell(): Promise<void> {
   } catch (e) { /* сессия могла истечь */ }
 }
 
+const bellBtn = ref<HTMLElement | null>(null);
+const bellStyle = ref<Record<string, string>>({});
+
 async function openBell(): Promise<void> {
   if (bellOpen.value) { bellOpen.value = false; return; }
   await refreshBell();
   bellOpen.value = true;
   try { localStorage.setItem('hp_last_read', String(Date.now())); } catch (e) { /* noop */ }
   unread.value = 0;
+  // позиционируем панель от кнопки (fixed без координат уезжал за экран)
+  const el = bellBtn.value;
+  if (el) {
+    const r = el.getBoundingClientRect();
+    bellStyle.value = {
+      position: 'fixed',
+      top: Math.min(r.bottom + 8, window.innerHeight - 200) + 'px',
+      right: (window.innerWidth - r.right) + 'px',
+    };
+  }
 }
 
 async function bellClear(): Promise<void> {
@@ -167,11 +180,11 @@ onBeforeUnmount(() => { document.removeEventListener('click', clickOutside); });
           <UiIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="17" />
         </button>
         <div class="bell-wrap" style="position:relative">
-          <button class="btn icon" title="Уведомления" @click="openBell">
+          <button ref="bellBtn" class="btn icon" title="Уведомления" @click="openBell">
             <UiIcon name="bell" :size="17" />
           </button>
           <span v-if="unread" class="bell-badge">{{ unread > 9 ? '9+' : unread }}</span>
-          <div v-if="bellOpen" class="bell-drop">
+          <div v-if="bellOpen" class="bell-drop" :style="bellStyle">
             <div class="bd-h"><b>Уведомления</b>
               <span style="flex:1"></span>
               <button class="btn sm" @click="bellClear">Очистить</button>
@@ -216,10 +229,9 @@ onBeforeUnmount(() => { document.removeEventListener('click', clickOutside); });
 .gs-item { padding: 9px 12px; cursor: pointer; font-size: 13.5px; }
 .gs-item:hover { background: var(--hover, rgba(0,0,0,.04)); }
 .bell-drop {
-  position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
+  position: fixed; top: 70px; right: 16px; z-index: 60;
   background: var(--card, #fff); border: 1px solid var(--border);
   border-radius: 10px; box-shadow: var(--shadow);
   width: 340px; max-height: 380px; overflow: auto;
 }
-.bell-wrap .bell-drop { position: fixed; }
 </style>

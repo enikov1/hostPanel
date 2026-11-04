@@ -7,6 +7,7 @@ import { confirmDlg } from '../lib/confirm';
 import { fmtSize, fmtDate } from '../lib/format';
 import UiIcon from '../components/UiIcon.vue';
 import AppModal from '../components/AppModal.vue';
+import UiCheckbox from '../components/ui/UiCheckbox.vue';
 
 interface Backup { id: string; created: string; size: number; sites?: string[]; with_db?: boolean }
 
@@ -124,8 +125,7 @@ function dlBackup(b: Backup): void {
 
     <!-- ======== создание копии ======== -->
     <AppModal :open="crtDlg" title="Резервное копирование" @close="crtDlg = false">
-      <label class="check">
-        <input v-model="crtWithDb" type="checkbox"> Включить дампы баз данных</label>
+      <UiCheckbox v-model="crtWithDb">Включить дампы баз данных</UiCheckbox>
       <div class="notice info">В архив войдут файлы всех сайтов, дампы MySQL и настройки
         панели. Хранятся последние копии (см. Настройки).</div>
       <template #footer>

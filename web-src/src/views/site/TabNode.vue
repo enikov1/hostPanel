@@ -5,6 +5,8 @@ import { api } from '../../api/client';
 import { toast, toastErr } from '../../lib/toast';
 import UiIcon from '../../components/UiIcon.vue';
 import AppModal from '../../components/AppModal.vue';
+import UiSelect from '../../components/ui/UiSelect.vue';
+import UiCheckbox from '../../components/ui/UiCheckbox.vue';
 import { siteState } from './siteShared';
 
 /* действия над приложением: restart | npm */
@@ -39,15 +41,13 @@ async function nodeLogsDlg(): Promise<void> {
 <template>
   <div v-if="siteState.site">
     <template v-if="siteState.site.node && siteState.f_node">
-      <label class="check">
-        <input v-model="siteState.f_node.enabled" type="checkbox">
-        Приложение Node.js включено (systemd-юнит)</label>
+      <UiCheckbox v-model="siteState.f_node.enabled">
+        Приложение Node.js включено (systemd-юнит)</UiCheckbox>
       <div class="row">
         <div class="field" style="flex:1">
           <label>Версия</label>
-          <select v-model="siteState.f_node.version">
-            <option v-for="v in ['18', '20', '22']" :key="v" :value="v">{{ v }}</option>
-          </select>
+          <UiSelect v-model="siteState.f_node.version"
+                    :options="['18', '20', '22'].map(v => ({ value: v, label: v }))" />
         </div>
         <div class="field" style="flex:1">
           <label>Порт</label>

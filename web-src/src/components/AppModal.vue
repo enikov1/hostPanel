@@ -7,6 +7,8 @@ const props = withDefaults(defineProps<{
   locked?: boolean;
 }>(), { wide: false, locked: false });
 
+import UiIcon from './UiIcon.vue';
+
 const emit = defineEmits<{ close: [] }>();
 
 function close(): void {

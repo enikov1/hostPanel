@@ -153,7 +153,7 @@ watch(() => route.params.id, (v, old) => {
 .sh-act { flex-shrink: 0; }
 .sh-tabs { padding: 8px 0 10px; margin: 0; }
 @media (max-width: 760px) {
-  .site-head { top: 0; }
+  .site-head { position: static; }
   .sh-row { gap: 7px; }
   .sh-name { font-size: 14px; width: 100%; order: -1; }
 }

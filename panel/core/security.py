@@ -21,16 +21,32 @@ def geoip2_ready():
         os.path.exists("/usr/share/GeoIP/GeoLite2-Country.mmdb")
 
 
+def geo_lists(sec):
+    """(allow[], deny[]) — новая схема geo_allow/geo_deny; старая
+    geo_mode+geo_countries мигрирует на лету (обработчик сохранения
+    переводит поля в новый формат)."""
+    allow = [c.upper() for c in (sec.get("geo_allow") or [])
+             if utils.valid_country(c)]
+    deny = [c.upper() for c in (sec.get("geo_deny") or [])
+            if utils.valid_country(c)]
+    if not allow and not deny:
+        mode = sec.get("geo_mode", "off")
+        old = [c.upper() for c in (sec.get("geo_countries") or [])
+               if utils.valid_country(c)]
+        if mode == "allow":
+            allow = old
+        elif mode == "deny":
+            deny = old
+    return allow, deny
+
+
 def geo_wanted_countries():
-    """[(domain, mode, [страны])] для всех сайтов с активным гео-фильтром."""
+    """[(domain, allow[], deny[])] для всех сайтов с активным гео-фильтром."""
     out = []
     for site in CTX.store.data.get("sites", []):
-        sec = site.get("security") or {}
-        mode = sec.get("geo_mode", "off")
-        countries = [c.upper() for c in (sec.get("geo_countries") or [])
-                     if utils.valid_country(c)]
-        if mode in ("allow", "deny") and countries:
-            out.append((site["domain"], mode, countries))
+        allow, deny = geo_lists(site.get("security") or {})
+        if allow or deny:
+            out.append((site["domain"], allow, deny))
     return out
 
 
@@ -38,9 +54,8 @@ def ensure_geo_map():
     """Пишет conf.d/hostpanel-geo.conf (внутри http{}) с map-директивами
     для всех сайтов с гео-фильтрами. Возвращает (ok, err)."""
     store = CTX.store
-    allowed_all = [(d, c) for d, m, c in geo_wanted_countries()
-                   if m == "allow"]
-    denied_all = [(d, c) for d, m, c in geo_wanted_countries() if m == "deny"]
+    allowed_all = [(d, a) for d, a, _deny in geo_wanted_countries() if a]
+    denied_all = [(d, dny) for d, _a, dny in geo_wanted_countries() if dny]
     if not geoip2_ready():
         # без модуля/базы map-директивы писать нельзя (nginx -t упадёт);
         # оставляем файл-комментарий, чтобы include оставался валидным
@@ -86,21 +101,23 @@ def _key(domain):
 
 
 def geo_config_for_site(site):
-    """Точная секция для конкретного сайта (использует map по домену)."""
+    """Секция конкретного сайта: разрешённые и запрещённые страны можно
+    комбинировать (проверяются независимо друг от друга)."""
     sec = site.get("security") or {}
-    mode = sec.get("geo_mode", "off")
-    countries = [c.upper() for c in (sec.get("geo_countries") or [])
-                 if utils.valid_country(c)]
-    if mode == "off" or not countries:
+    allow, deny = geo_lists(sec)
+    if not allow and not deny:
         return ""
     if not geoip2_ready():
         return "    # гео-фильтр неактивен: нет модуля geoip2 или базы GeoLite2"
     key = _key(site["domain"])
-    if mode == "allow":
-        return ("    if ($allowed_%s = no) { return 403; }\n"
-                "    # доступ только из: %s" % (key, ", ".join(countries)))
-    return ("    if ($denied_%s = yes) { return 403; }\n"
-            "    # запрещён доступ из: %s" % (key, ", ".join(countries)))
+    lines = []
+    if allow:
+        lines.append("    if ($allowed_%s = no) { return 403; }" % key)
+        lines.append("    # доступ только из: %s" % ", ".join(allow))
+    if deny:
+        lines.append("    if ($denied_%s = yes) { return 403; }" % key)
+        lines.append("    # запрещён доступ из: %s" % ", ".join(deny))
+    return "\n".join(lines)
 
 
 def ip_filters(sec):
@@ -173,6 +190,129 @@ def ensure_rate_limit_conf():
     return True, ""
 
 
+WAF_CONF_PATH = "/etc/nginx/conf.d/hostpanel-waf.conf"
+
+
+def _ua_lines_for(sec, key):
+    """Строки map $http_user_agent для сайта (ok/deny)."""
+    lines = []
+    # белые списки выше запрещающих: в nginx map первое совпадение выигрывает
+    import re as _re
+    for pat in (sec.get("ua_allow_patterns") or []):
+        pat = pat.strip()
+        if pat and '"' not in pat and '\\' not in pat and "{" not in pat:
+            lines.append('    ~*%s allow;' % pat)
+    if _re.search(config.SEARCH_ENGINE_RE.replace("~*", ""),
+                  "Googlebot", _re.I):
+        # поисковые роботы не блокируются категориями — явный allow первым
+        lines.append('    ~*(%s) allow;' %
+                     config.SEARCH_ENGINE_RE.replace("~*", ""))
+    if sec.get("block_empty_ua"):
+        lines.append('    "" deny;')
+    for cid in (sec.get("ua_categories") or []):
+        cat = config.BOT_CATEGORIES.get(cid)
+        if cat:
+            lines.append('    ~*(%s) deny;' % cat[0])
+    for r in (sec.get("ua_rules") or []):
+        pat = (r.get("pattern") or "").strip()
+        if pat and '"' not in pat and '\\' not in pat and "{" not in pat:
+            lines.append('    ~*%s deny;' % pat)
+    return lines
+
+
+def _ref_lines_for(sec):
+    lines = []
+    import re as _re
+    for d in (sec.get("ref_allow") or []):
+        if utils.valid_domain(d):
+            lines.append('    ~*https?://([^/]*\\.)?%s allow;' % d)
+    if sec.get("block_empty_ref"):
+        lines.append('    "" deny;')
+    for d in (sec.get("ref_block") or []):
+        if utils.valid_domain(d):
+            lines.append('    ~*https?://([^/]*\\.)?%s deny;' % d)
+    return lines
+
+
+def waf_wanted():
+    """[(domain, ua_lines, ref_lines)] сайтов с тонкими WAF-правилами."""
+    out = []
+    for site in CTX.store.data.get("sites", []):
+        sec = site.get("security") or {}
+        ua = _ua_lines_for(sec, _key(site["domain"]))
+        ref = _ref_lines_for(sec)
+        if ua or ref:
+            out.append((site["domain"], ua, ref))
+    return out
+
+
+def ensure_waf_conf():
+    """conf.d/hostpanel-waf.conf: карты $http_user_agent / $http_referer."""
+    wanted = waf_wanted()
+    if not wanted:
+        content = "# HostPanel: тонкие WAF-правила не заданы\n"
+    else:
+        lines = ["# HostPanel: карты User-Agent и Referer (WAF 2.0)"]
+        for domain, ua, ref in wanted:
+            key = _key(domain)
+            if ua:
+                lines.append("map $http_user_agent $hp_ua_%s {" % key)
+                lines.append("    default ok;")
+                lines.extend(ua)
+                lines.append("}")
+            if ref:
+                lines.append("map $http_referer $hp_ref_%s {" % key)
+                lines.append("    default ok;")
+                lines.extend(ref)
+                lines.append("}")
+        content = "\n".join(lines) + "\n"
+    if CTX.demo:
+        return True, ""
+    try:
+        os.makedirs("/etc/nginx/conf.d", exist_ok=True)
+        with open(WAF_CONF_PATH + ".hp-tmp", "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(WAF_CONF_PATH + ".hp-tmp", WAF_CONF_PATH)
+    except OSError as e:
+        return False, str(e)
+    return True, ""
+
+
+def ua_ref_config_for_site(site):
+    """if-секции тонкого WAF для серверного блока сайта."""
+    key = _key(site["domain"])
+    lines = []
+    if _ua_lines_for(site.get("security") or {}, key):
+        lines.append('    if ($hp_ua_%s = deny) { return 403; }' % key)
+        lines.append('    # HostPanel WAF: блокировка по User-Agent')
+    if _ref_lines_for(site.get("security") or {}):
+        lines.append('    if ($hp_ref_%s = deny) { return 403; }' % key)
+        lines.append('    # HostPanel WAF: блокировка по источнику (Referer)')
+    return "\n".join(lines)
+
+
+def apply_security(site):
+    """Применяет фильтры сайта: обновляет geo/waf/ratelimit конфиги,
+    перегенерирует конфиг сайта и проверяет синтаксис nginx."""
+    from . import templates
+    if CTX.demo:
+        return True, "демо: фильтры сохранены"
+    if geo_wanted_countries():
+        ok, err = ensure_geo_map()
+        if not ok:
+            return False, "гео-конфиг: %s" % err
+    ok, err = ensure_waf_conf()
+    if not ok:
+        return False, "WAF-конфиг: %s" % err
+    ok, err = ensure_rate_limit_conf()
+    if not ok:
+        return False, "rate-limit конфиг: %s" % err
+    ok, err = templates.write_site_configs(site)
+    if not ok:
+        return False, err
+    return True, ""
+
+
 def apply_security(site):
     """Применяет фильтры сайта: обновляет geo/ratelimit конфиги,
     перегенерирует конфиг сайта и проверяет синтаксис nginx."""
@@ -207,6 +347,9 @@ def site_section(site, sec=None):
     waf = waf_filter(sec)
     if waf:
         blocks.append(waf)
+    ua_ref = ua_ref_config_for_site(site)
+    if ua_ref:
+        blocks.append(ua_ref)
     rps = int(sec.get("rate_limit") or 0)
     if rps > 0:
         burst = int(sec.get("rate_burst") or 20)
@@ -245,6 +388,13 @@ def security_status(sec):
         parts.append("IP-allow: %d" % len(sec["ip_allow"]))
     if sec.get("block_bots"):
         parts.append("боты блокируются")
+    cats = sec.get("ua_categories") or []
+    if cats:
+        parts.append("категории ботов: %d" % len(cats))
+    if sec.get("ua_rules"):
+        parts.append("UA-правил: %d" % len(sec["ua_rules"]))
+    if sec.get("ref_block"):
+        parts.append("источников заблокировано: %d" % len(sec["ref_block"]))
     if sec.get("waf"):
         parts.append("WAF включён")
     if int(sec.get("rate_limit") or 0) > 0:

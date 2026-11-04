@@ -9,6 +9,8 @@ import { drawLine, cssVar } from '../../lib/charts';
 import { fmtSize } from '../../lib/format';
 import StatCard from '../../components/StatCard.vue';
 import UiIcon from '../../components/UiIcon.vue';
+import UiSelect from '../../components/ui/UiSelect.vue';
+import UiCheckbox from '../../components/ui/UiCheckbox.vue';
 import { siteState } from './siteShared';
 
 const loading = ref(true);
@@ -145,28 +147,24 @@ onMounted(() => { load(); });
                   :class="fDays === n ? 'primary' : ''"
                   @click="setDays(n)">{{ n }} дн.</button>
           <span style="width:1px;height:22px;background:var(--border)"></span>
-          <select v-model="fCode" class="sm" style="width:auto"
-                  @change="applyFilters()">
-            <option value="">любой код</option>
-            <option value="200">200 OK</option>
-            <option value="301">301 редирект</option>
-            <option value="302">302 редирект</option>
-            <option value="404">404 не найдено</option>
-            <option value="403">403 запрещено</option>
-            <option value="500">500 ошибка</option>
-          </select>
+          <UiSelect v-model="fCode" @change="applyFilters()"
+                    :options="[{ value: '', label: 'любой код' },
+                      { value: '200', label: '200 OK' },
+                      { value: '301', label: '301 редирект' },
+                      { value: '302', label: '302 редирект' },
+                      { value: '404', label: '404 не найдено' },
+                      { value: '403', label: '403 запрещено' },
+                      { value: '500', label: '500 ошибка' }]" />
           <input v-model="fIp" class="sm" style="width:140px"
                  placeholder="IP-адрес" @input="debouncedApply()">
           <input v-model="fUrl" class="sm" style="width:170px"
                  placeholder="подстрока в URL" @input="debouncedApply()">
-          <label class="check" style="margin:0">
-            <input v-model="fErrors" type="checkbox" @change="applyFilters()">
+          <UiCheckbox v-model="fErrors" @update:model-value="applyFilters()">
             только ошибки (4xx/5xx)
-          </label>
-          <label class="check" style="margin:0">
-            <input v-model="fBots" type="checkbox" @change="applyFilters()">
+          </UiCheckbox>
+          <UiCheckbox v-model="fBots" @update:model-value="applyFilters()">
             только боты
-          </label>
+          </UiCheckbox>
           <button class="btn sm" @click="applyFilters()">
             <UiIcon name="refresh" :size="13" /> Применить
           </button>

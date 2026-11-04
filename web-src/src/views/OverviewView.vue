@@ -9,9 +9,21 @@ import { drawLine, cssVar } from '../lib/charts';
 import { me } from '../stores';
 import StatCard from '../components/StatCard.vue';
 import UiIcon from '../components/UiIcon.vue';
+import BrandLogo from '../components/BrandLogo.vue';
 import type { OverviewData, SvcInfo, NotificationItem } from './monitoring/types';
 
 const router = useRouter();
+
+/** feather-иконка для служб без брендового логотипа */
+function svcFallback(name: string): string {
+  const n = (name || '').toLowerCase();
+  if (n.startsWith('fail2ban')) return 'shield';
+  if (n.startsWith('postfix')) return 'ext';
+  if (n.startsWith('dovecot')) return 'archive';
+  if (n.startsWith('memcached')) return 'zap';
+  if (n.startsWith('cron')) return 'clock';
+  return 'pkg';
+}
 
 const d = ref<OverviewData | null>(null);
 const cpuCanvas = ref<HTMLCanvasElement | null>(null);
@@ -205,7 +217,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); });
             <div v-if="!svcTop.length" class="empty">нет данных</div>
             <div v-for="s in svcTop" :key="s.name"
                  class="row" style="justify-content:space-between;padding:5px 0">
-              <span class="mono">{{ s.name }}</span>
+              <span class="mono"><BrandLogo :brand="s.name" :size="16" :fallback="svcFallback(s.name)" /> {{ s.name }}</span>
               <span class="pill" :class="svcPillCls(s)">{{ svcPillTxt(s) }}</span>
             </div>
           </div>

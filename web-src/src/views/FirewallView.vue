@@ -5,6 +5,7 @@ import { api } from '../api/client';
 import { toast, toastErr } from '../lib/toast';
 import UiIcon from '../components/UiIcon.vue';
 import AppModal from '../components/AppModal.vue';
+import UiSelect from '../components/ui/UiSelect.vue';
 
 interface FwRule {
   port: string;
@@ -21,6 +22,7 @@ const banned = ref<string[]>([]);
 const dlg = ref(false);
 const port = ref('');
 const act = ref('allow');
+const comment = ref('');
 
 function isAllow(a: unknown): boolean {
   return String(a).indexOf('allow') >= 0 || a === 'ALLOW';
@@ -41,13 +43,15 @@ async function load(): Promise<void> {
 function addDlg(): void {
   port.value = '';
   act.value = 'allow';
+  comment.value = '';
   dlg.value = true;
 }
 
 async function add(): Promise<void> {
   try {
     const r = await api('/api/firewall/add', { method: 'POST', body: {
-      port: port.value.trim(), action: act.value } });
+      port: port.value.trim(), action: act.value,
+      comment: comment.value.trim() } });
     toast(r.message);
     dlg.value = false;
     load();
@@ -93,15 +97,23 @@ onMounted(load);
     <AppModal :open="dlg" title="Новое правило" @close="dlg = false">
       <div class="row">
         <div class="field" style="flex:1">
-          <label>Порт</label>
+          <label>Порт (например 8080 или 3000:3010)</label>
           <input v-model="port" type="text" placeholder="8080">
         </div>
         <div class="field" style="flex:1">
           <label>Действие</label>
-          <select v-model="act">
-            <option value="allow">разрешить</option>
-            <option value="deny">запретить</option>
-          </select>
+          <UiSelect v-model="act"
+                    :options="[{ value: 'allow', label: 'разрешить' },
+                      { value: 'deny', label: 'запретить' }]" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Комментарий (необязательно)</label>
+        <input v-model="comment" type="text" maxlength="100"
+               placeholder="например: панель управления">
+        <div class="faint" style="font-size:11.5px;margin-top:4px">
+          Правило открывает или закрывает порт для доступа из любой сети.
+          Комментарий поможет потом вспомнить, зачем порт открыт.
         </div>
       </div>
       <template #footer>

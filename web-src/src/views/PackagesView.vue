@@ -7,6 +7,8 @@ import { confirmDlg } from '../lib/confirm';
 import { fmtDate } from '../lib/format';
 import UiIcon from '../components/UiIcon.vue';
 import AppModal from '../components/AppModal.vue';
+import UiSelect from '../components/ui/UiSelect.vue';
+import UiCheckbox from '../components/ui/UiCheckbox.vue';
 
 interface Upg { pkg: string; kind: string; cur?: string; new?: string }
 interface TaskHistItem { ok: boolean; finished?: string; kind: string; error?: string }
@@ -85,8 +87,7 @@ async function aptUpdate(): Promise<void> {
   } catch (e) { toastErr(e); }
 }
 
-function toggleKind(kind: string, ev: Event): void {
-  const on = (ev.target as HTMLInputElement).checked;
+function toggleKind(kind: string, on: boolean): void {
   kindChecked.value[kind] = on;
   upgradable.value.forEach((u) => { if (u.kind === kind) checked.value[u.pkg] = on; });
 }
@@ -130,6 +131,13 @@ async function openPhpModules(): Promise<void> {
     const php = await api('/api/php');
     modNames.value = php.module_names || {};
   } catch (e) { /* описания не критичны */ }
+}
+
+/** Переключение галочки PHP-модуля в диалоге установки. */
+function toggleModSel(m: string, on: boolean): void {
+  const set = new Set(modSel.value);
+  if (on) set.add(m); else set.delete(m);
+  modSel.value = Array.from(set);
 }
 
 function installPhpModules(): Promise<void> {
@@ -193,12 +201,12 @@ function installPhpModules(): Promise<void> {
         </div>
         <div class="twrap"><table>
           <thead><tr>
-            <th><input type="checkbox" :checked="kindChecked[kind]" @change="toggleKind(kind, $event)"></th>
+            <th><UiCheckbox :model-value="kindChecked[kind]" @update:model-value="(v) => toggleKind(kind, v)" /></th>
             <th>Пакет</th><th>Текущая</th><th>Новая</th>
           </tr></thead>
           <tbody>
             <tr v-for="u in list" :key="u.pkg">
-              <td><input v-model="checked[u.pkg]" type="checkbox"></td>
+              <td><UiCheckbox v-model="checked[u.pkg]" /></td>
               <td class="mono">{{ u.pkg }}</td>
               <td class="mono muted">{{ u.cur || '—' }}</td>
               <td class="mono">{{ u.new || '—' }}</td>
@@ -212,10 +220,10 @@ function installPhpModules(): Promise<void> {
         <div class="card-h"><span class="card-t">Установка PHP-модулей</span></div>
         <div class="row">
           <div style="flex:1">
-            <select v-model="phpVer">
-              <option v-if="!phpVersions.length" value="">PHP не обнаружен</option>
-              <option v-for="v in phpVersions" :key="v" :value="v">PHP {{ v }}</option>
-            </select>
+            <UiSelect v-model="phpVer"
+                      :options="phpVersions.length
+                        ? phpVersions.map(v => ({ value: v, label: 'PHP ' + v }))
+                        : [{ value: '', label: 'PHP не обнаружен' }]" />
           </div>
           <button class="btn" @click="openPhpModules()">Выбрать модули…</button>
         </div>
@@ -230,13 +238,15 @@ function installPhpModules(): Promise<void> {
   <AppModal :open="modOpen" :title="'PHP-модули для ' + modVersion" wide @close="modOpen = false">
     <div class="notice info">Установленные модули отмечены галочкой и недоступны. Новые ставятся через apt в фоне.</div>
     <div style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:10px">
-      <label v-for="m in modAvailable" :key="m" class="check"
-             :style="{ margin: '4px 0', opacity: modInstalled.has(m) ? 0.5 : 1 }">
-        <input v-model="modSel" type="checkbox" :value="m" :disabled="modInstalled.has(m)">
+      <UiCheckbox v-for="m in modAvailable" :key="m"
+                  :model-value="modSel.includes(m)"
+                  :disabled="modInstalled.has(m)"
+                  :style="{ margin: '4px 0', opacity: modInstalled.has(m) ? 0.5 : 1 }"
+                  @update:model-value="(v) => toggleModSel(m, v)">
         {{ m }}
         <span v-if="modNames[m]" class="faint">— {{ modNames[m] }}</span>
         <span v-if="modInstalled.has(m)" class="pill ok" style="margin-left:auto">установлен</span>
-      </label>
+      </UiCheckbox>
     </div>
     <template #footer>
       <button class="btn primary" @click="installPhpModules()">

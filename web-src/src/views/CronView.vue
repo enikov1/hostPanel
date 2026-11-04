@@ -7,6 +7,8 @@ import { confirmDlg } from '../lib/confirm';
 import { cronHuman } from '../lib/format';
 import UiIcon from '../components/UiIcon.vue';
 import AppModal from '../components/AppModal.vue';
+import UiSelect from '../components/ui/UiSelect.vue';
+import UiCheckbox from '../components/ui/UiCheckbox.vue';
 import FilePickerModal from './cron/FilePickerModal.vue';
 
 interface CronJob { expr: string; command: string; comment?: string; enabled: boolean }
@@ -70,8 +72,7 @@ async function cronSave(): Promise<void> {
   } catch (e) { toastErr(e); }
 }
 
-function toggleJob(i: number, ev: Event): void {
-  const checked = (ev.target as HTMLInputElement).checked;
+function toggleJob(i: number, checked: boolean): void {
   if (jobs.value[i]) { jobs.value[i].enabled = checked; cronSave(); }
 }
 
@@ -239,14 +240,14 @@ function onPick(p: string): void {
         <button class="btn primary" @click="openEdit(-1)">
           <UiIcon name="plus" :size="15" />Добавить задачу</button>
         <span class="spacer"></span>
-        <label class="check" style="margin:0" title="Копия всех сайтов и баз по расписанию">
-          <input v-model="auto" type="checkbox" @change="cronSave()"> Автобэкап по расписанию</label>
+        <UiCheckbox v-model="auto" title="Копия всех сайтов и баз по расписанию"
+                    @update:model-value="cronSave()">Автобэкап по расписанию</UiCheckbox>
         <input v-model="autoCron" type="text" style="width:110px" class="mono"
                title="Расписание автобэкапа" @change="cronSave()">
         <span class="faint" style="font-size:11.5px">{{ autoHuman }}</span>
-        <label class="check" style="margin:0"
-               title="Сертификаты Let's Encrypt продлеваются автоматически (certbot renew); панель предупредит, если сертификат истекает раньше чем через 14 дней">
-          <input v-model="sslAuto" type="checkbox" @change="cronSave()"> Автопродление SSL</label>
+        <UiCheckbox v-model="sslAuto"
+                    title="Сертификаты Let's Encrypt продлеваются автоматически (certbot renew); панель предупредит, если сертификат истекает раньше чем через 14 дней"
+                    @update:model-value="cronSave()">Автопродление SSL</UiCheckbox>
         <input v-model="sslAutoCron" type="text" style="width:110px" class="mono"
                title="Расписание проверки сертификатов" @change="cronSave()">
         <span class="faint" style="font-size:11.5px">{{ sslHuman }}</span>
@@ -263,7 +264,8 @@ function onPick(p: string): void {
               </td>
               <td class="mono" style="word-break:break-all">{{ row.j.command }}</td>
               <td class="muted">{{ row.j.comment || '' }}</td>
-              <td><input type="checkbox" :checked="row.j.enabled" @change="toggleJob(row.i, $event)"></td>
+              <td><UiCheckbox :model-value="row.j.enabled"
+                              @update:model-value="(v) => toggleJob(row.i, v)" /></td>
               <td>
                 <div class="actions-cell">
                   <button class="btn sm" title="Журнал запусков" @click="openLog(row.i)"><UiIcon name="file" :size="13" /></button>
@@ -317,10 +319,9 @@ function onPick(p: string): void {
           <UiIcon name="folder" :size="14" /></button>
       </div>
       <div class="row" style="margin-top:8px">
-        <select v-model="siteSel" style="flex:1" @change="siteInsert()">
-          <option value="">— вставить путь к сайту —</option>
-          <option v-for="s in sites" :key="s.docroot" :value="s.docroot">{{ s.domain }}</option>
-        </select>
+        <UiSelect v-model="siteSel" style="flex:1" @change="siteInsert()"
+                  :options="[{ value: '', label: '— вставить путь к сайту —' },
+                    ...sites.map((s) => ({ value: s.docroot, label: s.domain }))]" />
       </div>
       <div class="faint" style="font-size:11.5px;margin-top:5px">
         Выберите сайт — его путь подставится в команду, допишите дальше путь до скрипта, например:

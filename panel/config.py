@@ -6,7 +6,7 @@
 """
 import os
 
-VERSION = "2.16.10"
+VERSION = "2.17.0"
 PANEL_NAME = "HostPanel"
 
 # --- пути -------------------------------------------------------------
@@ -132,6 +132,40 @@ WAF_ARGS_RE = (r"(?:union[\s+]select|select[\s+].+[\s+]from|insert[\s+]into"
 WAF_PATHS_RE = (r"(?:^|/)(?:\.git|\.svn|\.hg|\.env|\.htaccess|\.htpasswd"
                 r"|wp-config\.php|phpinfo\.php|composer\.json|\.aws)"
                 r"(?:/|$)")
+
+# --- WAF: категории ботов для выборной блокировки ------------------------
+# id -> (regex без модификатора, человекочитаемое название, описание)
+# Regex подставляется в nginx map как ~*<regex>; составлен без спецкавычек.
+BOT_CATEGORIES = {
+    "scanners": (r"sqlmap|nikto|nmap|masscan|acunetix|nessus|openvas|"
+                 r"dirbuster|gobuster|wpscan|arachni|w3af|havij|zgrab",
+                 "Сканеры уязвимостей",
+                 "Инструменты поиска дыр: sqlmap, nikto, WPScan и подобные. "
+                 "Ломаются к сайту постоянно — блокировать почти всегда стоит."),
+    "abuse": (r"semrush|ahrefs|mj12bot|dotbot|petalbot|serpstatbot|blexbot|"
+              r"megaindex|backlinkspy|linkdex",
+              "SEO-парсеры и abuse-боты",
+              "Парсеры позиций и обратных ссылок: нагружают сайт, пользы "
+              "посетителям не приносят."),
+    "ai": (r"GPTBot|ClaudeBot|Claude-Web|CCBot|anthropic-ai|PerplexityBot|"
+           r"Google-Extended|Bytespider|ImagesiftBot|cohere-ai|omgili",
+           "ИИ-сборщики данных",
+           "Боты языковых моделей (ChatGPT, Claude, Gemini и др.) — обучают "
+           "модели на вашем контенте без ссылок на источник."),
+    "http_tools": (r"python-requests|python-urllib|Go-http-client|Java/|"
+                   r"libwww|scrapy|httpclient|okhttp|dart:io",
+                   "HTTP-инструменты (без браузера)",
+                   "Запросы из скриптов и библиотек без браузерного "
+                   "User-Agent. Осторожно: это же могут слать ваши API-"
+                   "клиенты и мониторинги."),
+    "headless": (r"headlesschrome|phantomjs|puppeteer|playwright",
+                 "Headless-браузеры",
+                 "Браузеры без интерфейса — так работают скулпуллеры и "
+                 "накрутчики поведенческих факторов."),
+}
+# хорошие роботы — они не должны блокироваться категориями «подряд»
+SEARCH_ENGINE_RE = (r"Googlebot|bingbot|DuckDuckBot|YandexBot|Baiduspider|"
+                    r"YandexImages|YandexMetrika|Applebot|Feedfetcher")
 
 # --- файловый менеджер: разрешённые корни в рабочем режиме --------------
 def fm_roots(panel_home):

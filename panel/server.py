@@ -140,6 +140,18 @@ class Handler(BaseHTTPRequestHandler):
                                  headers={"Cache-Control":
                                           "public, max-age=31536000, immutable"})
             return True
+        if route.startswith("/logos/"):
+            rel = route[7:]
+            if ".." in rel or "/" in rel or not rel.endswith(".svg"):
+                return False
+            path = os.path.join(web, "logos", rel)
+            if not os.path.isfile(path):
+                return False
+            with open(path, "rb") as f:
+                self._send_bytes(f.read(), "image/svg+xml",
+                                 headers={"Cache-Control":
+                                          "public, max-age=31536000, immutable"})
+            return True
         if route in ("/favicon.svg",):
             path = os.path.join(web, "favicon.svg")
             if not os.path.isfile(path):

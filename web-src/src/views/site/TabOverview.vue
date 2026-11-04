@@ -7,6 +7,8 @@ import { toast, toastErr } from '../../lib/toast';
 import UiIcon from '../../components/UiIcon.vue';
 import AppModal from '../../components/AppModal.vue';
 import WizardSubdomain from './WizardSubdomain.vue';
+import UiSelect from '../../components/ui/UiSelect.vue';
+import UiCheckbox from '../../components/ui/UiCheckbox.vue';
 import { siteState, openSiteUrl, WEBSERVERS } from './siteShared';
 
 const router = useRouter();
@@ -65,16 +67,13 @@ function auditPillText(st: string): string {
     </div>
     <div class="field">
       <label>Веб-сервер</label>
-      <select v-model="siteState.f_webserver">
-        <option v-for="w in WEBSERVERS" :key="w[0]" :value="w[0]">{{ w[1] }}</option>
-      </select>
+      <UiSelect v-model="siteState.f_webserver"
+                :options="WEBSERVERS.map(w => ({ value: w[0], label: w[1] }))" />
     </div>
-    <label class="check">
-      <input v-model="siteState.f_enabled" type="checkbox">
-      Сайт включён (при выключении показывает заглушку «Сайт отключён»)</label>
-    <label class="check">
-      <input v-model="siteState.f_www" type="checkbox">
-      Обслуживать www.домен — имя www войдёт в server_name и будет выпрашиваться в сертификате SSL</label>
+    <UiCheckbox v-model="siteState.f_enabled">
+      Сайт включён (при выключении показывает заглушку «Сайт отключён»)</UiCheckbox>
+    <UiCheckbox v-model="siteState.f_www">
+      Обслуживать www.домен — имя www войдёт в server_name и будет выпрашиваться в сертификате SSL</UiCheckbox>
 
     <div class="row">
       <button class="btn" @click="router.push({ path: '/files', query: { path: siteState.site.docroot || '' } })">
@@ -96,35 +95,30 @@ function auditPillText(st: string): string {
       Сайт сейчас отдаёт HTTP 503 и страницу «ведутся работы».</div>
 
     <div class="g-title">Производительность (настройки nginx)</div>
-    <label class="check">
-      <input v-model="siteState.f_perf.gzip" type="checkbox">
-      Сжатие ответов (gzip) — страницы отдаются быстрее</label>
-    <label v-if="siteState.origWs !== 'nginx+node'" class="check">
-      <input v-model="siteState.f_perf.static_cache" type="checkbox">
-      Кэш картинок и стилей в браузере (30 дней)</label>
+    <UiCheckbox v-model="siteState.f_perf.gzip">
+      Сжатие ответов (gzip) — страницы отдаются быстрее</UiCheckbox>
+    <UiCheckbox v-if="siteState.origWs !== 'nginx+node'" v-model="siteState.f_perf.static_cache">
+      Кэш картинок и стилей в браузере (30 дней)</UiCheckbox>
     <template v-if="siteState.origHasSsl">
-      <label class="check">
-        <input v-model="siteState.f_perf.hsts" type="checkbox">
-        HSTS — браузер будет ходить на сайт только по HTTPS</label>
-      <label class="check">
-        <input v-model="siteState.f_perf.http2" type="checkbox">
-        HTTP/2 — ускорение загрузки при HTTPS</label>
+      <UiCheckbox v-model="siteState.f_perf.hsts">
+        HSTS — браузер будет ходить на сайт только по HTTPS</UiCheckbox>
+      <UiCheckbox v-model="siteState.f_perf.http2">
+        HTTP/2 — ускорение загрузки при HTTPS</UiCheckbox>
     </template>
     <div class="faint" style="font-size:11.5px;margin-top:4px">Применится после «Сохранить». Конфиг проверяется nginx -t — при ошибке панель откатит изменения сама.</div>
 
     <div class="g-title">Библиотека сниппетов (nginx)</div>
-    <label class="check">
-      <input v-model="siteState.f_snippets.www_redirect" type="checkbox"> Редирект www → без www</label>
+    <UiCheckbox v-model="siteState.f_snippets.www_redirect">
+      Редирект www → без www</UiCheckbox>
     <div class="field" style="margin:6px 0 0">
       <label>Закрыть /admin по IP (через запятую, пусто — выключено)</label>
       <input v-model="siteState.f_snippets.admin_ip" type="text" class="mono" placeholder="1.2.3.4, 5.6.7.8">
     </div>
     <div class="field" style="margin:6px 0 0">
       <label>Максимум загрузки файлов (client_max_body_size)</label>
-      <select v-model="siteState.f_snippets.upload_size">
-        <option v-for="v in ['', '64m', '128m', '256m', '512m', '1g', '2g']" :key="v" :value="v">
-          {{ v || 'по умолчанию (64m)' }}</option>
-      </select>
+      <UiSelect v-model="siteState.f_snippets.upload_size"
+                :options="['', '64m', '128m', '256m', '512m', '1g', '2g']
+                  .map(v => ({ value: v, label: v || 'по умолчанию (64m)' }))" />
     </div>
 
     <!-- мастер поддомена -->

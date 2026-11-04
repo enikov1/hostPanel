@@ -287,7 +287,8 @@ def firewall_add(handler, body):
     if body.get("action", "allow") not in ("allow", "deny"):
         return err("некорректное действие")
     okc, errs = services.firewall_add(port, body.get("action", "allow"),
-                                      body.get("proto", "tcp"))
+                                      body.get("proto", "tcp"),
+                                      body.get("comment", ""))
     if okc:
         return done("правило добавлено")
     return err(errs, 500)
@@ -366,6 +367,52 @@ def files_rename(handler, body):
     if okc:
         return done("переименовано в %s" % res)
     return err(res, 500)
+
+
+@post("/api/files/move")
+def files_move(handler, body):
+    """Перемещение объектов в папку (drag&drop, вырезать/вставить)."""
+    paths = body.get("paths", [])
+    dest_dir = body.get("dest", "")
+    if not isinstance(paths, list) or not dest_dir or             not fm_allowed(dest_dir):
+        return err("некорректный запрос")
+    errs = []
+    moved = 0
+    for path in paths:
+        if not fm_allowed(path):
+            errs.append("%s: путь недоступен" % path)
+            continue
+        okc, e = files_mod.move(path, dest_dir)
+        if okc:
+            moved += 1
+        else:
+            errs.append("%s: %s" % (os.path.basename(path), e))
+    if errs:
+        return err("; ".join(errs[:5]), 500)
+    return done("перемещено объектов: %d" % moved)
+
+
+@post("/api/files/copy")
+def files_copy(handler, body):
+    """Копирование объектов в папку."""
+    paths = body.get("paths", [])
+    dest_dir = body.get("dest", "")
+    if not isinstance(paths, list) or not dest_dir or             not fm_allowed(dest_dir):
+        return err("некорректный запрос")
+    errs = []
+    copied = 0
+    for path in paths:
+        if not fm_allowed(path):
+            errs.append("%s: путь недоступен" % path)
+            continue
+        okc, e = files_mod.copy(path, dest_dir)
+        if okc:
+            copied += 1
+        else:
+            errs.append("%s: %s" % (os.path.basename(path), e))
+    if errs:
+        return err("; ".join(errs[:5]), 500)
+    return done("скопировано объектов: %d" % copied)
 
 
 @post("/api/files/chmod")

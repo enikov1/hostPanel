@@ -146,6 +146,43 @@ def download_info(path):
             "name": os.path.basename(full)}
 
 
+def move(src, dest_dir):
+    """Перемещение файла/папки в другую папку (drag&drop проводника)."""
+    base = os.path.basename(src.rstrip("/"))
+    dest = os.path.join(dest_dir, base)
+    real_src = os.path.realpath(src)
+    real_dest = os.path.realpath(dest_dir)
+    # нельзя перемещать папку внутрь самой себя или своего потомка
+    if real_dest == real_src or real_dest.startswith(real_src + os.sep):
+        return False, "нельзя переместить папку внутрь самой себя"
+    if os.path.exists(dest):
+        return False, "в папке уже есть объект с именем " + base
+    try:
+        shutil.move(src, dest)
+        return True, dest
+    except OSError as e:
+        return False, str(e)
+
+
+def copy(src, dest_dir):
+    """Копирование файла/папки в другую папку."""
+    base = os.path.basename(src.rstrip("/"))
+    dest = os.path.join(dest_dir, base)
+    real_dest = os.path.realpath(dest_dir)
+    if os.path.realpath(src).startswith(real_dest + os.sep) and             os.path.isdir(src):
+        return False, "нельзя копировать папку внутрь самой себя"
+    if os.path.exists(dest):
+        return False, "в папке уже есть объект с именем " + base
+    try:
+        if os.path.isdir(src):
+            shutil.copytree(src, dest)
+        else:
+            shutil.copy2(src, dest)
+        return True, dest
+    except OSError as e:
+        return False, str(e)
+
+
 def extract(path):
     """Распаковка zip/tar.gz/tgz/tar рядом с архивом (с защитой от zip-slip)."""
     full = os.path.realpath(path)

@@ -8,8 +8,11 @@ import { confirmDlg } from '../lib/confirm';
 import { genPassword } from '../lib/pw';
 import { copyText } from '../lib/clipboard';
 import UiIcon from '../components/UiIcon.vue';
+import BrandLogo from '../components/BrandLogo.vue';
 import AppModal from '../components/AppModal.vue';
 import PwField from '../components/PwField.vue';
+import UiSelect from '../components/ui/UiSelect.vue';
+import UiCheckbox from '../components/ui/UiCheckbox.vue';
 import { SWSET_IDS } from './swset/swsetShared';
 import { pmaApps } from './software/pmaStore';
 
@@ -263,7 +266,7 @@ onBeforeUnmount(() => {
       <template v-if="pmaInstalled().length">
         <div v-for="a in pmaInstalled()" :key="a.domain" class="row"
              style="align-items:center;padding:10px 6px;flex-wrap:wrap;border-top:1px solid var(--border)">
-          <span style="width:26px"><UiIcon name="ext" :size="18" /></span>
+          <span style="width:26px"><BrandLogo brand="pma" :size="18" fallback="ext" /></span>
           <div style="flex:1;min-width:180px">
             <b>{{ a.domain }}/pma</b>
             <div class="muted" style="font-size:12.5px">phpMyAdmin {{ a.version || '5.2.2' }}{{ a.protected
@@ -292,7 +295,7 @@ onBeforeUnmount(() => {
       <div class="card-h" style="padding:10px 6px 0"><span class="card-t">{{ g }}</span></div>
       <div v-for="s in list" :key="s.id" class="row"
            style="align-items:center;padding:10px 6px;border-top:1px solid var(--border)">
-        <span style="width:26px"><UiIcon :name="SW_ICONS[s.id] || 'pkg'" :size="18" /></span>
+        <span style="width:26px"><BrandLogo :brand="s.id" :size="18" :fallback="SW_ICONS[s.id] || 'pkg'" /></span>
         <div style="flex:1;min-width:0">
           <b>{{ s.name }}</b>
           <div class="muted" style="font-size:12.5px">{{ s.desc }}</div>
@@ -324,7 +327,7 @@ onBeforeUnmount(() => {
           Установите любую версию PHP — она появится здесь</div>
         <div v-for="v in (ioncube.versions || [])" :key="v.version" class="row"
              style="align-items:center;padding:10px 6px;border-top:1px solid var(--border)">
-          <span style="width:26px"><UiIcon name="term" :size="18" /></span>
+          <span style="width:26px"><BrandLogo brand="ioncube" :size="18" fallback="term" /></span>
           <div style="flex:1"><b>PHP {{ v.version }}</b></div>
           <span v-if="v.installed" class="pill ok">ionCube {{ v.loader }}</span>
           <span v-else class="pill gray">не установлен</span>
@@ -344,13 +347,13 @@ onBeforeUnmount(() => {
     <AppModal :open="pmaDlgOpen" title="Установка phpMyAdmin" wide @close="pmaDlgOpen = false">
       <div class="field">
         <label>Сайт — куда установить (папка /pma)</label>
-        <select v-model="pmaSite" style="width:100%">
-          <option v-for="x in pmaSites" :key="x.domain" :value="x.domain">
-            {{ x.domain }}{{ (x.ssl || {}).kind !== 'none' ? ' (SSL)' : '' }}</option>
-        </select>
+        <UiSelect v-model="pmaSite"
+                  :options="pmaSites.map((x: any) => ({ value: x.domain,
+                    label: x.domain + ((x.ssl || {}).kind !== 'none' ? ' (SSL)' : '') }))" />
       </div>
-      <label class="check" style="margin:6px 0 4px">
-        <input v-model="pmaProtect" type="checkbox"> Закрыть папку паролем (рекомендуется)</label>
+      <div style="margin:6px 0 4px">
+        <UiCheckbox v-model="pmaProtect">Закрыть папку паролем (рекомендуется)</UiCheckbox>
+      </div>
       <div v-show="pmaProtect" class="field">
         <PwField v-model="pmaPass" label="Пароль папки /pma" :gen="true"
                  hint="Появится в браузере при входе в phpMyAdmin. Сохраните — увидите его в «доступах»." />

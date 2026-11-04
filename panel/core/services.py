@@ -319,17 +319,28 @@ def firewall_status():
             m = re.match(r"\[\s*\d+\]\s+(\S+)\s+(ALLOW|DENY|REJECT|LIMIT)"
                          r"(?:\s+\S+)?\s+(.*)", line)
             if m:
+                frm = m.group(3).strip()
+                comment = ""
+                mc = re.search(r"\(comment '([^']*)'\)", frm)
+                if mc:
+                    comment = mc.group(1)
+                    frm = frm.replace(mc.group(0), "").strip()
+                # человекочитаемый источник вместо ufw-жаргона
+                if frm in ("Anywhere", "Anywhere (v6)"):
+                    frm = "из любой сети"
+                elif "(v6)" in frm:
+                    frm = frm.replace("(v6)", "").strip() + " (IPv6)"
                 rules.append({"port": m.group(1).split("/")[0],
                               "proto": (m.group(1).split("/") + ["tcp"])[1],
                               "action": m.group(2).lower(),
-                              "from": m.group(3).strip(), "comment": ""})
+                              "from": frm, "comment": comment})
         return {"active": active, "backend": "ufw", "rules": rules,
                 "banned": []}
     return {"active": False, "backend": "не найден (ufw не установлен)",
             "rules": [], "banned": []}
 
 
-def firewall_add(port, action="allow", proto="tcp"):
+def firewall_add(port, action="allow", proto="tcp", comment=""):
     import re
     if not re.match(r"^\d{1,5}(/\d{1,5})?(:\d{1,5})?$", str(port)):
         return False, "некорректный порт"
@@ -341,8 +352,17 @@ def firewall_add(port, action="allow", proto="tcp"):
         return True, "демо: правило добавлено"
     if not have("ufw"):
         return False, "ufw не установлен"
-    code, _, err = run(["ufw", action, "proto", proto, "to", "any",
-                        "port", str(port).split("/")[0]], as_root=True)
+    cmd = ["ufw", action, "proto", proto, "to", "any",
+           "port", str(port).split("/")[0]]
+    # ufw поддерживает комментарий к правилу (виден в status numbered)
+    bad = chr(39) + chr(34) + chr(13) + chr(10)
+    comment = str(comment or '')
+    for ch in bad:
+        comment = comment.replace(ch, '')
+    comment = comment.strip()[:100]
+    if comment:
+        cmd += ["comment", comment]
+    code, _, err = run(cmd, as_root=True)
     return code == 0, err
 
 

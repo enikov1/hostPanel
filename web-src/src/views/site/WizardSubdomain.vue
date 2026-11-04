@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import { toast, toastErr } from '../../lib/toast';
 import UiIcon from '../../components/UiIcon.vue';
 import AppModal from '../../components/AppModal.vue';
+import UiSelect from '../../components/ui/UiSelect.vue';
 import { WEBSERVERS } from './siteShared';
 
 const props = defineProps<{ open: boolean; parentId: number; parentDomain: string }>();
@@ -66,23 +67,18 @@ async function create(): Promise<void> {
     </div>
     <div class="field">
       <label>Веб-сервер</label>
-      <select v-model="ws">
-        <option v-for="w in WEBSERVERS" :key="w[0]" :value="w[0]">{{ w[1] }}</option>
-      </select>
+      <UiSelect v-model="ws" :options="WEBSERVERS.map(w => ({ value: w[0], label: w[1] }))" />
     </div>
     <div class="field">
       <label>Версия PHP</label>
-      <select v-model="php">
-        <option v-for="v in phpVersions" :key="v" :value="v">PHP {{ v }}</option>
-      </select>
+      <UiSelect v-model="php" :options="phpVersions.map(v => ({ value: v, label: 'PHP ' + v }))" />
     </div>
     <div class="field">
       <label>SSL</label>
-      <select v-model="sslKind">
-        <option value="none">Без SSL</option>
-        <option value="letsencrypt">Let's Encrypt</option>
-        <option value="selfsigned">Самоподписанный</option>
-      </select>
+      <UiSelect v-model="sslKind"
+                :options="[{ value: 'none', label: 'Без SSL' },
+                  { value: 'letsencrypt', label: 'Let\'s Encrypt' },
+                  { value: 'selfsigned', label: 'Самоподписанный' }]" />
     </div>
     <template #footer>
       <button class="btn primary" :disabled="busy" @click="create()">

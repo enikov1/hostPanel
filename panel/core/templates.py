@@ -288,6 +288,9 @@ def write_site_configs(site, old_domain=None):
             if not ok_rl and CTX.store:
                 CTX.store.notify("Rate-limit %s: %s" % (domain, err_rl),
                                  "warn")
+        ok_waf, err_waf = sec_mod.ensure_waf_conf()
+        if not ok_waf and CTX.store:
+            CTX.store.notify("WAF %s: %s" % (domain, err_waf), "warn")
 
     # -- nginx ----------------------------------------------------------
     nginx_written = False
@@ -337,7 +340,18 @@ def write_site_configs(site, old_domain=None):
         if ssl.get("kind") != "none" and not CTX.demo:
             from . import ssl as ssl_mod
             p = ssl_mod.paths(domain)
-            ssl_listen = NGINX_SSL_BLOCK.format(cert=p["cert"], key=p["key"])
+            # страховка: файлы сертификата могут пропасть (переезд, ручная
+            # чистка) — тогда 443-блок с битым путём уронит весь nginx -t.
+            # Не выпускаем SSL-блок и предупреждаем.
+            if not (os.path.exists(p["cert"]) and os.path.exists(p["key"])):
+                if CTX.store:
+                    CTX.store.notify(
+                        "SSL %s: файлы сертификата не найдены (%s) — "
+                        "443-блок не применён. Перевыпустите сертификат."
+                        % (domain, p["cert"]), "warn")
+            else:
+                ssl_listen = NGINX_SSL_BLOCK.format(cert=p["cert"],
+                                                    key=p["key"])
             if (site.get("perf") or {}).get("http2"):
                 ssl_listen = ssl_listen.replace(
                     "listen 443 ssl;", "listen 443 ssl http2;")

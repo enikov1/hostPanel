@@ -5,8 +5,20 @@ import { api } from '../api/client';
 import { toast, toastErr } from '../lib/toast';
 import { humanRel } from '../lib/format';
 import UiIcon from '../components/UiIcon.vue';
+import BrandLogo from '../components/BrandLogo.vue';
 import AppModal from '../components/AppModal.vue';
 import type { SvcInfo } from './monitoring/types';
+
+/** feather-иконка для служб без брендового логотипа */
+function svcFallback(name: string): string {
+  const n = (name || '').toLowerCase();
+  if (n.startsWith('fail2ban')) return 'shield';
+  if (n.startsWith('postfix')) return 'ext';
+  if (n.startsWith('dovecot')) return 'archive';
+  if (n.startsWith('memcached')) return 'zap';
+  if (n.startsWith('cron')) return 'clock';
+  return 'pkg';
+}
 
 const services = ref<SvcInfo[]>([]);
 const activeCount = computed(() =>
@@ -90,7 +102,7 @@ onMounted(() => { void load(); });
         </tr></thead>
         <tbody>
           <tr v-for="s in services" :key="s.name">
-            <td class="mono">{{ s.name }}</td>
+            <td class="mono"><BrandLogo :brand="s.name" :size="16" :fallback="svcFallback(s.name)" /> {{ s.name }}</td>
             <td><span class="pill" :class="pillCls(s)">{{ pillTxt(s) }}</span></td>
             <td class="mono">{{ s.uptime_h || '—' }}</td>
             <td class="mono muted">

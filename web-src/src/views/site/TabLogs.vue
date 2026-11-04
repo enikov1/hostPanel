@@ -7,6 +7,8 @@ import { api } from '../../api/client';
 import { toast, toastErr } from '../../lib/toast';
 import { confirmDlg } from '../../lib/confirm';
 import UiIcon from '../../components/UiIcon.vue';
+import UiSelect from '../../components/ui/UiSelect.vue';
+import UiCheckbox from '../../components/ui/UiCheckbox.vue';
 import { siteState } from './siteShared';
 
 const logKind = ref<'access' | 'error'>('access');
@@ -139,9 +141,8 @@ onBeforeUnmount(() => { if (autoTimer) clearInterval(autoTimer); });
         <span class="pill gray" v-if="loaded">
           показано {{ lines.length }} из {{ total }}</span>
         <span style="width:1px;height:22px;background:var(--border)"></span>
-        <label class="check" style="margin:0">
-          <input v-model="auto" type="checkbox" @change="toggleAuto()">
-          авто-обновление 10 сек</label>
+        <UiCheckbox v-model="auto" @update:model-value="toggleAuto()">
+          авто-обновление 10 сек</UiCheckbox>
         <span style="flex:1"></span>
         <button class="btn sm" @click="siteLogRefresh()">
           <UiIcon name="refresh" :size="13" /> Обновить</button>
@@ -162,10 +163,9 @@ onBeforeUnmount(() => { if (autoTimer) clearInterval(autoTimer); });
         </div>
         <div class="f" style="width:110px;margin:0">
           <label style="margin:0 0 4px">Код</label>
-          <select v-model="fCode" @change="applyLogFilters()">
-            <option value="">все</option>
-            <option v-for="c in CODES" :key="c">{{ c }}</option>
-          </select>
+          <UiSelect v-model="fCode" @change="applyLogFilters()"
+                    :options="[{ value: '', label: 'все' },
+                      ...CODES.map(c => ({ value: c, label: c }))]" />
         </div>
         <div class="f" style="width:140px;margin:0">
           <label style="margin:0 0 4px">IP</label>
@@ -187,12 +187,10 @@ onBeforeUnmount(() => { if (autoTimer) clearInterval(autoTimer); });
         </div>
       </div>
       <div class="row" style="gap:14px;margin-top:8px;flex-wrap:wrap">
-        <label class="check" style="margin:0">
-          <input v-model="fErr" type="checkbox" @change="applyLogFilters()">
-          только ошибки (4xx/5xx)</label>
-        <label class="check" style="margin:0">
-          <input v-model="fBots" type="checkbox" @change="applyLogFilters()">
-          только боты</label>
+        <UiCheckbox v-model="fErr" @update:model-value="applyLogFilters()">
+          только ошибки (4xx/5xx)</UiCheckbox>
+        <UiCheckbox v-model="fBots" @update:model-value="applyLogFilters()">
+          только боты</UiCheckbox>
         <button v-if="filtersOn" class="btn sm" @click="resetFilters()">
           <UiIcon name="x" :size="13" /> Сбросить фильтры</button>
       </div>

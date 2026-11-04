@@ -17,10 +17,13 @@ import { fmtSize } from '../lib/format';
 import { genPassword } from '../lib/pw';
 import { me } from '../stores';
 import UiIcon from '../components/UiIcon.vue';
+import BrandLogo from '../components/BrandLogo.vue';
 import AppModal from '../components/AppModal.vue';
 import PwField from '../components/PwField.vue';
 import CredRow from '../components/CredRow.vue';
 import CodeEditor from '../components/CodeEditor.vue';
+import UiSelect from '../components/ui/UiSelect.vue';
+import UiRadio from '../components/ui/UiRadio.vue';
 
 const router = useRouter();
 
@@ -45,6 +48,11 @@ const filtered = computed(() =>
 function engName(id?: string): string {
   const e = engines.value.find((x) => x.id === (id || 'mysql'));
   return e ? e.name : (id || 'mysql');
+}
+
+/** бренд для логотипа по id СУБД ('pg' → postgresql, 'mysql'/'mariadb') */
+function dbBrand(engine?: string): string {
+  return engine === 'pg' ? 'postgresql' : (engine || 'mysql');
 }
 
 function setFilter(f: string): void {
@@ -316,6 +324,7 @@ function dbDel(name: string, engine: string): void {
           Все ({{ dbs.length }})</button>
         <button v-for="e in avail" :key="e.id" class="btn sm"
                 :class="{ primary: filt === e.id }" @click="setFilter(e.id)">
+          <BrandLogo :brand="dbBrand(e.id)" :size="14" fallback="db" />
           {{ e.name }} ({{ dbs.filter((x) => (x.engine || 'mysql') === e.id).length }})</button>
         <span v-for="e in engines.filter((x) => !x.available)" :key="e.id"
               class="pill warn" style="cursor:pointer"
@@ -334,6 +343,7 @@ function dbDel(name: string, engine: string): void {
               <tr v-for="db in filtered" :key="(db.engine || 'mysql') + ':' + db.name">
                 <td><b class="mono">{{ db.name }}</b></td>
                 <td><span class="pill" :class="(db.engine || 'mysql') === 'pg' ? 'info' : 'gray'">
+                  <BrandLogo :brand="dbBrand(db.engine)" :size="14" fallback="db" />
                   {{ engName(db.engine || 'mysql') }}</span></td>
                 <td>
                   <span v-if="db.user" class="mono">{{ db.user }}</span>
@@ -387,10 +397,12 @@ function dbDel(name: string, engine: string): void {
     <AppModal :open="crtDlg" title="Новая база данных" @close="crtDlg = false">
       <div v-if="avail.length > 1" class="field">
         <label>Тип СУБД</label>
-        <label v-for="e in avail" :key="e.id" class="check" style="margin:4px 0">
-          <input v-model="crtEngine" type="radio" name="db-eng" :value="e.id"> {{ e.name }}
-          <span v-if="e.id === 'pg'" class="faint">— например, для 1С-Битрикс24 или приложений на Django</span>
-        </label>
+        <div v-for="e in avail" :key="e.id" style="margin:4px 0">
+          <UiRadio v-model="crtEngine" name="dbtype" :value="e.id">
+            {{ e.name }}
+            <span v-if="e.id === 'pg'" class="faint">— например, для 1С-Битрикс24 или приложений на Django</span>
+          </UiRadio>
+        </div>
       </div>
       <div v-else class="faint" style="font-size:12px;margin-bottom:8px">
         СУБД: <b>{{ avail[0] ? avail[0].name : 'MariaDB' }}</b>
@@ -462,9 +474,7 @@ function dbDel(name: string, engine: string): void {
               @close="pwDlg = false">
       <div class="field">
         <label>Пользователь</label>
-        <select v-model="pwUser">
-          <option v-for="u in pwUsers" :key="u" :value="u">{{ u }}</option>
-        </select>
+        <UiSelect v-model="pwUser" :options="pwUsers.map((u) => ({ value: u, label: u }))" />
       </div>
       <PwField v-model="pwNew" label="Новый пароль"
                hint="После смены пароля обновите его в настройках сайта, который использует эту базу — иначе сайт потеряет доступ." />
@@ -499,19 +509,17 @@ function dbDel(name: string, engine: string): void {
       <div class="row">
         <div class="field" style="flex:1">
           <label>База данных</label>
-          <select v-model="sqlDb">
-            <option v-for="x in sqlDbs" :key="(x.engine || 'mysql') + ':' + x.name" :value="x.name">
-              {{ x.name }}{{ (x.engine || 'mysql') !== sqlEngine
-                ? ' · ' + engName(x.engine || 'mysql') : '' }}</option>
-          </select>
+          <UiSelect v-model="sqlDb"
+                    :options="sqlDbs.map((x) => ({ value: x.name,
+                      label: x.name + ((x.engine || 'mysql') !== sqlEngine
+                        ? ' · ' + engName(x.engine || 'mysql') : '') }))" />
         </div>
         <div v-if="sqlHist.length" class="field" style="flex:1">
           <label>История</label>
-          <select v-model="sqlHistSel" @change="sqlHistPick()">
-            <option value="">—</option>
-            <option v-for="(q, i) in sqlHist" :key="i" :value="String(i)">
-              {{ q.slice(0, 60) }}{{ q.length > 60 ? '…' : '' }}</option>
-          </select>
+          <UiSelect v-model="sqlHistSel" @change="sqlHistPick()"
+                    :options="[{ value: '', label: '—' },
+                      ...sqlHist.map((q, i) => ({ value: String(i),
+                        label: q.slice(0, 60) + (q.length > 60 ? '…' : '') }))]" />
         </div>
       </div>
       <CodeEditor v-model="sqlText" lang="sql" @keydown="sqlKey" />

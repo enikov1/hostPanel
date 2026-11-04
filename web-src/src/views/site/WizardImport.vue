@@ -5,6 +5,7 @@ import { apiForm } from '../../api/client';
 import { toast } from '../../lib/toast';
 import UiIcon from '../../components/UiIcon.vue';
 import AppModal from '../../components/AppModal.vue';
+import UiCheckbox from '../../components/ui/UiCheckbox.vue';
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: []; imported: [] }>();
@@ -64,8 +65,8 @@ async function go(): Promise<void> {
       <label>Домен сайта (существующий или новый)</label>
       <input v-model="dom" type="text" class="mono" placeholder="mysite.ru">
     </div>
-    <label class="check"><input v-model="clean" type="checkbox">
-      Очистить папку сайта перед распаковкой (файлы будут заменены)</label>
+    <UiCheckbox v-model="clean">
+      Очистить папку сайта перед распаковкой (файлы будут заменены)</UiCheckbox>
     <div class="field">
       <label>Zip с файлами сайта (до 200 МБ)</label>
       <input ref="zipEl" type="file" accept=".zip">
