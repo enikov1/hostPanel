@@ -297,10 +297,10 @@ def apply_security(site):
     from . import templates
     if CTX.demo:
         return True, "демо: фильтры сохранены"
-    if geo_wanted_countries():
-        ok, err = ensure_geo_map()
-        if not ok:
-            return False, "гео-конфиг: %s" % err
+    # всегда: при выключении гео-фильтров старые карты очищаются
+    ok, err = ensure_geo_map()
+    if not ok:
+        return False, "гео-конфиг: %s" % err
     ok, err = ensure_waf_conf()
     if not ok:
         return False, "WAF-конфиг: %s" % err
