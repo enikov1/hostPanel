@@ -1,6 +1,8 @@
 <script setup lang="ts">
-/* ============ Вкладка «Логи» карточки сайта: access/error + фильтры ============ */
-import { nextTick, onMounted, ref } from 'vue';
+/* ============ Вкладка «Логи» карточки сайта: access/error + фильтры ============
+   Один журнал активен, одна кнопка очистки — для активного журнала.
+   Автообновление, раздельные фильтры, явные пустые состояния. */
+import { nextTick, onMounted, onBeforeUnmount, ref } from 'vue';
 import { api } from '../../api/client';
 import { toast, toastErr } from '../../lib/toast';
 import { confirmDlg } from '../../lib/confirm';
@@ -10,9 +12,10 @@ import { siteState } from './siteShared';
 const logKind = ref<'access' | 'error'>('access');
 const lines = ref<string[]>([]);
 const total = ref(0);
+const loaded = ref(false);
 const logBox = ref<HTMLElement | null>(null);
 
-/* фильтры (как прежний filter-bar) */
+/* фильтры */
 const fQ = ref('');
 const fCode = ref('');
 const fIp = ref('');
@@ -21,10 +24,13 @@ const fSince = ref('');
 const fUntil = ref('');
 const fErr = ref(false);
 const fBots = ref(false);
+const filtersOn = ref(false);
+
+const auto = ref(false);
+let autoTimer: ReturnType<typeof setInterval> | null = null;
 
 const CODES = ['200', '301', '302', '304', '403', '404', '429', '500', '502', '503'];
 
-/* подсветка строк ошибок (как прежний renderLogBox) */
 function lineCls(l: string): string {
   if (/\[error\]| 500 | 502 | 503 | 40[0-9] /.test(l)) {
     if (logKind.value === 'error' || / 5\d\d /.test(l)) return 'le';
@@ -48,9 +54,16 @@ function siteLogRefresh(): void { void siteLog(logKind.value); }
 async function renderLogBox(d: any): Promise<void> {
   lines.value = d.lines || [];
   total.value = d.total || 0;
+  loaded.value = true;
   await nextTick(() => {
     if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight;
   });
+}
+
+function resetFilters(): void {
+  fQ.value = ''; fCode.value = ''; fIp.value = ''; fUrl.value = '';
+  fSince.value = ''; fUntil.value = ''; fErr.value = false; fBots.value = false;
+  applyLogFilters();
 }
 
 async function applyLogFilters(): Promise<void> {
@@ -66,86 +79,137 @@ async function applyLogFilters(): Promise<void> {
   if (fUntil.value) p.set('until', fUntil.value);
   if (fErr.value) p.set('errors_only', '1');
   if (fBots.value) p.set('bots_only', '1');
+  filtersOn.value = !!(fQ.value || fCode.value || fIp.value || fUrl.value ||
+    fSince.value || fUntil.value || fErr.value || fBots.value);
   try {
     const d = await api('/api/site/' + s.id + '/logs?' + p.toString());
     void renderLogBox(d);
   } catch (e) { toastErr(e); }
 }
 
-/* очистка журнала */
-function logsClear(kind: 'access' | 'error'): void {
+/** Очистка ТОЛЬКО активного журнала — чтобы нельзя было ошибиться. */
+function logsClear(): void {
   const s = siteState.site;
   if (!s) return;
-  confirmDlg('Очистить журнал',
-    'Все записи журнала «' + (kind === 'access' ? 'Access' : 'Error') + '» сайта ' +
-    s.domain + ' будут удалены. Это безопасно — журнал начнёт заполняться заново.',
+  const kind = logKind.value;
+  confirmDlg('Очистить ' + (kind === 'access' ? 'access' : 'error') + '-журнал',
+    'Все записи журнала «' + (kind === 'access' ? 'Access' : 'Error') +
+    '» сайта ' + s.domain + ' будут удалены. Это безопасно — журнал начнёт ' +
+    'заполняться заново. Активный сайт может дописать новые строки уже через ' +
+    'пару секунд — это нормально.',
     async () => {
       try {
-        const r = await api('/api/site/' + s.id + '/logs_clear', { method: 'POST', body: { kind } });
+        const r = await api('/api/site/' + s.id + '/logs_clear',
+          { method: 'POST', body: { kind } });
         toast(r.message);
         void siteLog(kind);
       } catch (e) { toastErr(e); }
     }, false);
 }
 
-onMounted(() => { /* как в оригинале: журнал не грузится, пока не выбран */ });
+function toggleAuto(): void {
+  if (auto.value) {
+    autoTimer = setInterval(() => {
+      void api('/api/site/' + (siteState.site?.id || 0) + '/logs?type=' +
+        logKind.value).then(renderLogBox).catch(() => { /* тихо */ });
+    }, 10000);
+  } else if (autoTimer) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+  }
+}
+
+onMounted(() => { void siteLog('access'); });
+onBeforeUnmount(() => { if (autoTimer) clearInterval(autoTimer); });
 </script>
 
 <template>
   <div>
-    <div class="row" style="margin-bottom:10px">
-      <button class="btn sm" :class="{ primary: logKind === 'access' }" @click="siteLog('access')">Access-лог</button>
-      <button class="btn sm" :class="{ primary: logKind === 'error' }" @click="siteLog('error')">Error-лог</button>
-      <span class="spacer"></span>
-      <span class="muted" style="font-size:12.5px">последние 300 строк</span>
-      <button class="btn sm danger" @click="logsClear('access')">Очистить access</button>
-      <button class="btn sm danger" @click="logsClear('error')">Очистить error</button>
+    <!-- панель журнала -->
+    <div class="card" style="margin:0 0 10px;padding:12px 14px">
+      <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
+        <div class="row" style="gap:0">
+          <button class="btn sm" :class="{ primary: logKind === 'access' }"
+                  style="border-radius:4px 0 0 4px"
+                  @click="siteLog('access')">Access-лог</button>
+          <button class="btn sm" :class="{ primary: logKind === 'error' }"
+                  style="border-radius:0 4px 4px 0;margin-left:-1px"
+                  @click="siteLog('error')">Error-лог</button>
+        </div>
+        <span class="pill gray" v-if="loaded">
+          показано {{ lines.length }} из {{ total }}</span>
+        <span style="width:1px;height:22px;background:var(--border)"></span>
+        <label class="check" style="margin:0">
+          <input v-model="auto" type="checkbox" @change="toggleAuto()">
+          авто-обновление 10 сек</label>
+        <span style="flex:1"></span>
+        <button class="btn sm" @click="siteLogRefresh()">
+          <UiIcon name="refresh" :size="13" /> Обновить</button>
+        <button class="btn sm danger" @click="logsClear()">
+          <UiIcon name="trash" :size="13" />
+          Очистить {{ logKind === 'access' ? 'access' : 'error' }}-журнал
+        </button>
+      </div>
     </div>
 
-    <div class="filter-bar">
-      <div class="f grow">
-        <label style="margin:0 0 4px">Поиск по тексту</label>
-        <input v-model="fQ" type="text" placeholder="подстрока в строке лога" @input="applyLogFilters()">
+    <!-- фильтры -->
+    <div class="card" style="margin:0 0 10px;padding:12px 14px">
+      <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="f grow" style="min-width:200px">
+          <label style="margin:0 0 4px">Поиск по тексту</label>
+          <input v-model="fQ" type="text" placeholder="подстрока в строке лога"
+                 @input="applyLogFilters()">
+        </div>
+        <div class="f" style="width:110px;margin:0">
+          <label style="margin:0 0 4px">Код</label>
+          <select v-model="fCode" @change="applyLogFilters()">
+            <option value="">все</option>
+            <option v-for="c in CODES" :key="c">{{ c }}</option>
+          </select>
+        </div>
+        <div class="f" style="width:140px;margin:0">
+          <label style="margin:0 0 4px">IP</label>
+          <input v-model="fIp" type="text" placeholder="1.2.3.4"
+                 @input="applyLogFilters()">
+        </div>
+        <div class="f grow" style="min-width:160px;margin:0">
+          <label style="margin:0 0 4px">URL содержит</label>
+          <input v-model="fUrl" type="text" placeholder="/wp-admin"
+                 @input="applyLogFilters()">
+        </div>
+        <div class="f" style="width:150px;margin:0">
+          <label style="margin:0 0 4px">С даты</label>
+          <input v-model="fSince" type="date" @change="applyLogFilters()">
+        </div>
+        <div class="f" style="width:150px;margin:0">
+          <label style="margin:0 0 4px">По дату</label>
+          <input v-model="fUntil" type="date" @change="applyLogFilters()">
+        </div>
       </div>
-      <div class="f">
-        <label style="margin:0 0 4px">Код</label>
-        <select v-model="fCode" @change="applyLogFilters()">
-          <option value="">все</option>
-          <option v-for="c in CODES" :key="c">{{ c }}</option>
-        </select>
+      <div class="row" style="gap:14px;margin-top:8px;flex-wrap:wrap">
+        <label class="check" style="margin:0">
+          <input v-model="fErr" type="checkbox" @change="applyLogFilters()">
+          только ошибки (4xx/5xx)</label>
+        <label class="check" style="margin:0">
+          <input v-model="fBots" type="checkbox" @change="applyLogFilters()">
+          только боты</label>
+        <button v-if="filtersOn" class="btn sm" @click="resetFilters()">
+          <UiIcon name="x" :size="13" /> Сбросить фильтры</button>
       </div>
-      <div class="f">
-        <label style="margin:0 0 4px">IP</label>
-        <input v-model="fIp" type="text" placeholder="1.2.3.4" @input="applyLogFilters()">
-      </div>
-      <div class="f">
-        <label style="margin:0 0 4px">URL содержит</label>
-        <input v-model="fUrl" type="text" placeholder="/wp-admin" @input="applyLogFilters()">
-      </div>
-      <div class="f">
-        <label style="margin:0 0 4px">С даты</label>
-        <input v-model="fSince" type="date" @change="applyLogFilters()">
-      </div>
-      <div class="f">
-        <label style="margin:0 0 4px">По дату</label>
-        <input v-model="fUntil" type="date" @change="applyLogFilters()">
-      </div>
-      <label class="check" style="margin:0">
-        <input v-model="fErr" type="checkbox" @change="applyLogFilters()"> только ошибки (4xx/5xx)</label>
-      <label class="check" style="margin:0">
-        <input v-model="fBots" type="checkbox" @change="applyLogFilters()"> только боты</label>
-      <button class="btn sm" @click="siteLogRefresh()">
-        <UiIcon name="refresh" :size="13" /> Обновить</button>
     </div>
 
-    <div class="muted" style="font-size:12px;margin-bottom:6px">
-      показано {{ lines.length }} из {{ total }} строк</div>
-
+    <!-- журнал -->
     <div ref="logBox" class="logbox">
-      <template v-if="lines.length">
+      <template v-if="!loaded">Выберите журнал…</template>
+      <template v-else-if="lines.length">
         <div v-for="(l, i) in lines" :key="i" :class="lineCls(l)">{{ l }}</div>
       </template>
-      <template v-else>Выберите журнал…</template>
+      <template v-else>
+        <div style="padding:18px;text-align:center;color:var(--muted)">
+          Журнал пуст — он был очищен или в нём ещё нет новых записей.
+          <template v-if="filtersOn"><br>Попробуйте сбросить фильтры.</template>
+        </div>
+      </template>
     </div>
   </div>
 </template>
