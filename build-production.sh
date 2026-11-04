@@ -19,7 +19,7 @@ set -e
 cd "$(dirname "$0")"
 
 ROOT="$(pwd)"
-VUE="$ROOT/vue-src"
+VUE="$ROOT/web-src"
 SRC_PANEL="$ROOT/server-pull/panel"
 PROD="$ROOT/production"
 
