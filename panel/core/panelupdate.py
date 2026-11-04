@@ -17,6 +17,7 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 import urllib.request
 
 from .. import config, utils
@@ -29,6 +30,10 @@ ARCHIVE_URL = "https://github.com/%s/archive/refs/heads/main.tar.gz" % REPO
 # фоновая задача обновления (одна одновременно)
 TASK = {"running": False, "log": [], "started": "", "error": "", "done": False}
 LOCK = threading.Lock()
+
+# кеш последней проверки версии GitHub: [timestamp, версия] — чтобы не
+# блокировать request-поток urlopen'ом на каждый опрос статуса
+_last_check = [0.0, ""]
 
 
 def _log(msg):
@@ -67,27 +72,28 @@ def status():
     latest, error = "", ""
     running = TASK["running"]
     if not running:  # свежая проверка только когда задача не идёт
-        try:
-            latest = fetch_latest_version()
-        except Exception as e:  # noqa: BLE001 — сеть может быть недоступна
-            error = "нет связи с GitHub (%s)" % str(e)[:120]
+        if _last_check[0] and time.time() - _last_check[0] < 300:
+            latest = _last_check[1]   # кеш свежее 300 сек — не ходим в сеть
+        else:
+            try:
+                latest = fetch_latest_version()
+                _last_check[0], _last_check[1] = time.time(), latest
+            except Exception as e:  # noqa: BLE001 — сеть может быть недоступна
+                error = "нет связи с GitHub (%s)" % str(e)[:120]
     with LOCK:
-        return {
-            "ok": True,
-            "current": config.VERSION,
-            "latest": latest,
-            "update_available": bool(
-                latest and version_newer(latest, config.VERSION)),
-            "error": error,
-            "repo": REPO,
-            "task": {
-                "running": TASK["running"],
-                "log": TASK["log"][-40:],
-                "started": TASK["started"],
-                "error": TASK["error"],
-                "done": TASK["done"],
-            },
-        }
+        task = {"running": TASK["running"], "log": TASK["log"][-40:],
+                "started": TASK["started"], "error": TASK["error"],
+                "done": TASK["done"]}
+    return {
+        "ok": True,
+        "current": config.VERSION,
+        "latest": latest,
+        "update_available": bool(
+            latest and version_newer(latest, config.VERSION)),
+        "error": error,
+        "repo": REPO,
+        "task": task,
+    }
 
 
 def run_update():
@@ -130,7 +136,13 @@ def _do_update():
     _log("Архив скачан (%d КБ), распаковываю…" %
          (os.path.getsize(archive) // 1024))
     with tarfile.open(archive, "r:gz") as tf:
-        tf.extractall(tmp)  # noqa: S202 — архив из нашего репозитория
+        # защита от path traversal: только обычные файлы/папки внутри tmp
+        for member in tf.getmembers():
+            target = os.path.realpath(os.path.join(tmp, member.name))
+            if not target.startswith(os.path.realpath(tmp) + os.sep):
+                raise RuntimeError("подозрительный путь в архиве: "
+                                   + member.name)
+        tf.extractall(tmp)
     src_root = next(os.path.join(tmp, d) for d in os.listdir(tmp)
                     if os.path.isdir(os.path.join(tmp, d)))
     new_panel = os.path.join(src_root, "panel")
@@ -184,10 +196,12 @@ def _do_update():
         shutil.rmtree(os.path.join(parent, old), ignore_errors=True)
 
     _log("Файлы заменены. Перезапуск службы hostpanel…")
-    utils.log("Обновление панели: %s -> %s" % (config.VERSION, new_version))
-    CTX.store.log_action("Обновление панели до версии %s" %
-                         (new_version or "?"))
-    CTX.store.save()
+    from ..context import STATE_LOCK
+    with STATE_LOCK:   # мутация state + save — только под замком
+        utils.log("Обновление панели: %s -> %s" % (config.VERSION, new_version))
+        CTX.store.log_action("Обновление панели до версии %s" %
+                             (new_version or "?"))
+        CTX.store.save()
     # рестарт после короткой паузы: успеть отдать HTTP-ответ клиенту
     timer = threading.Timer(2.0, lambda: subprocess.run(
         ["systemctl", "restart", "hostpanel"], check=False))

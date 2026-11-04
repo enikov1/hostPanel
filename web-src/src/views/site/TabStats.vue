@@ -3,7 +3,7 @@
    Фильтры (период, код, IP, URL, только ошибки/боты), графики
    запросов/трафика и почасовой активности, коды статусов,
    топ страниц / IP / ботов / источников / User-Agent. */
-import { nextTick, onMounted, ref } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { api } from '../../api/client';
 import { drawLine, cssVar } from '../../lib/charts';
 import { fmtSize } from '../../lib/format';
@@ -130,8 +130,11 @@ function draw(): void {
   }
 }
 
-let pollTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => { load(); });
+
+onBeforeUnmount(() => {
+  if (applyTimer) { clearTimeout(applyTimer); applyTimer = null; }
+});
 </script>
 
 <template>
@@ -232,13 +235,13 @@ onMounted(() => { load(); });
       <!-- коды статусов -->
       <div class="card" style="margin:0 0 12px">
         <div class="card-h"><span class="card-t">Коды ответов</span></div>
-        <template v-if="st.codes.length">
+        <template v-if="st.codes && st.codes.length">
           <div v-for="c in st.codes" :key="c[0]" class="row"
                style="gap:10px;align-items:center;padding:4px 0">
             <span class="pill" :class="codeClass(c[0])" style="width:52px;text-align:center">{{ c[0] }}</span>
             <div class="bar" style="flex:1">
               <i :class="codeClass(c[0])"
-                 :style="{ width: Math.max(2, c[1] * 100 / st.codes[0][1]) + '%',
+                 :style="{ width: Math.max(2, c[1] * 100 / (st.codes[0] ? st.codes[0][1] : 1)) + '%',
                            background: codeClass(c[0]) === 'gray' ? 'var(--muted)' : '' }"></i>
             </div>
             <span class="mono" style="width:80px;text-align:right">

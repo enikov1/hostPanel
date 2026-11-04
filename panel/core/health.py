@@ -23,23 +23,24 @@ def _health_data(domain):
 
 def snapshot_disk(site):
     """Записывает точку размера папки сайта в историю (если пора)."""
-    h = _health_data(site["domain"])
-    hist = h.setdefault("disk", [])
-    now = utils.now_str()          # "2026-11-03 12:00:00"
-    if hist:
-        try:
-            last = dt.datetime.strptime(hist[-1]["t"], "%Y-%m-%d %H:%M:%S")
-            if (dt.datetime.now() - last).total_seconds() < DISK_PERIOD:
-                return
-        except ValueError:
-            pass
-    docroot = site.get("docroot") or ""
-    if not os.path.isabs(docroot):
-        docroot = os.path.join(CTX.home, docroot)
-    size = utils.dir_size(docroot)
-    hist.append({"t": now, "mb": round(size / 1024 / 1024, 1)})
-    del hist[:-DISK_KEEP]
-    CTX.store.save()
+    with STATE_LOCK:   # мутация state + save — только под общим замком
+        h = _health_data(site["domain"])
+        hist = h.setdefault("disk", [])
+        now = utils.now_str()          # "2026-11-03 12:00:00"
+        if hist:
+            try:
+                last = dt.datetime.strptime(hist[-1]["t"], "%Y-%m-%d %H:%M:%S")
+                if (dt.datetime.now() - last).total_seconds() < DISK_PERIOD:
+                    return
+            except ValueError:
+                pass
+        docroot = site.get("docroot") or ""
+        if not os.path.isabs(docroot):
+            docroot = os.path.join(CTX.home, docroot)
+        size = utils.dir_size(docroot)
+        hist.append({"t": now, "mb": round(size / 1024 / 1024, 1)})
+        del hist[:-DISK_KEEP]
+        CTX.store.save()
 
 
 def _server_public_ip():

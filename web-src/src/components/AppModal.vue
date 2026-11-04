@@ -1,5 +1,8 @@
 <script setup lang="ts">
-/* Модальное окно: телепорт в body, слоты body/footer, ширины и блокировка. */
+/* Модальное окно: телепорт в body, слоты body/footer, ширины и блокировка.
+   Закрытие: клик по фону, крестик или Escape (пока окно открыто). */
+import { watch, onBeforeUnmount } from 'vue';
+
 const props = withDefaults(defineProps<{
   open: boolean;
   title: string;
@@ -15,6 +18,22 @@ function close(): void {
   if (props.locked) return;
   emit('close');
 }
+
+/* Escape закрывает открытое окно (глобальный слушатель — окно в Teleport,
+   фокус может быть где угодно). */
+function onKey(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && props.open) {
+    e.stopPropagation();
+    close();
+  }
+}
+
+watch(() => props.open, (v) => {
+  if (v) document.addEventListener('keydown', onKey, true);
+  else document.removeEventListener('keydown', onKey, true);
+}, { immediate: true });
+
+onBeforeUnmount(() => { document.removeEventListener('keydown', onKey, true); });
 </script>
 
 <template>

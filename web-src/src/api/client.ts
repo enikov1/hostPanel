@@ -10,9 +10,31 @@ export class ApiError extends Error {
   constructor(message: string) { super(message); }
 }
 
-export interface ApiOptions {
+interface ApiOptions {
   method?: string;
   body?: unknown;
+}
+
+/** Разбор ответа как JSON с понятной ошибкой вместо SyntaxError:
+ *  502/500 с HTML-страницей или пустое тело превращаются в ApiError. */
+async function parseJson(r: Response): Promise<any> {
+  const text = await r.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ApiError('Сервер вернул ошибку (код ' + r.status + ')');
+  }
+}
+
+/** Общая обработка ответа: 401 → хук выхода, ошибка сервера/не-JSON → ApiError. */
+async function handleResponse(r: Response): Promise<any> {
+  if (r.status === 401) {
+    if (onUnauthorized) onUnauthorized();
+    throw new ApiError('требуется вход');
+  }
+  const j = await parseJson(r);
+  if (j && j.ok === false) throw new ApiError(j.error || 'ошибка запроса');
+  return j;
 }
 
 /** Аутентификация — HttpOnly-cookie (SameSite=Strict); CSRF на сервере
@@ -28,19 +50,13 @@ export async function api(path: string, opts: ApiOptions = {}): Promise<any> {
     init.body = JSON.stringify(opts.body);
   }
   const r = await fetch(path, init);
-  if (r.status === 401) {
-    if (onUnauthorized) onUnauthorized();
-    throw new ApiError('требуется вход');
-  }
-  const j = await r.json();
-  if (j && j.ok === false) throw new ApiError(j.error || 'ошибка запроса');
-  return j;
+  return handleResponse(r);
 }
 
 /** POST multipart/form-data (загрузка файлов, импорт). */
 export async function apiForm(path: string, fd: FormData): Promise<any> {
   const r = await fetch(path, { method: 'POST', body: fd });
-  const j = await r.json();
+  const j = await handleResponse(r);
   if (!j.ok) throw new ApiError(j.error || 'ошибка запроса');
   return j;
 }
@@ -48,10 +64,17 @@ export async function apiForm(path: string, fd: FormData): Promise<any> {
 /** Скачивание файла через API с проверкой ошибок. */
 export async function downloadFile(url: string, fallbackName: string): Promise<void> {
   const r = await fetch(url);
+  if (r.status === 401) {
+    if (onUnauthorized) onUnauthorized();
+    throw new ApiError('требуется вход');
+  }
   const ct = r.headers.get('Content-Type') || '';
   if (ct.includes('application/json')) {
-    const j = await r.json();
+    const j = await parseJson(r);
     throw new ApiError(j.error || 'ошибка скачивания');
+  }
+  if (!r.ok) {
+    throw new ApiError('Сервер вернул ошибку (код ' + r.status + ')');
   }
   const blob = await r.blob();
   const cd = r.headers.get('Content-Disposition') || '';

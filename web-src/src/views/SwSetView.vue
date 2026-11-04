@@ -194,14 +194,17 @@ async function swPassDo(): Promise<void> {
     const r = await api('/api/swset/password', { method: 'POST',
       body: { id: pwId, key: pwKey, password: pwVal.value } });
     pwOut.value = r.password || pwVal.value;
-    if (r.message) console.log(r.message);
+    if (r.message) toast(r.message);
   } catch (e) { toastErr(e); }
 }
 
 async function swPassClear(id: string, key: string): Promise<void> {
+  const e = entries.value.find((x: any) => x.id === id);
+  const name = e ? e.name : id; // без привязки к конкретной службе
   confirmDlg('Убрать пароль',
-    'Убрать пароль подключения к Redis? Подключения без пароля станут возможны ' +
-    '(следите, чтобы порт слушал только 127.0.0.1).', async () => {
+    'Убрать пароль подключения к «' + name + '»? Подключения без пароля станут ' +
+    'возможны — убедитесь, что порт службы слушает только 127.0.0.1.',
+    async () => {
       try {
         const r = await api('/api/swset/password', { method: 'POST',
           body: { id, key, clear: true } });

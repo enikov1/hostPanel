@@ -352,8 +352,11 @@ def firewall_add(port, action="allow", proto="tcp", comment=""):
         return True, "демо: правило добавлено"
     if not have("ufw"):
         return False, "ufw не установлен"
-    cmd = ["ufw", action, "proto", proto, "to", "any",
-           "port", str(port).split("/")[0]]
+    # proto может быть пустым ('both') — тогда не указываем его вовсе
+    cmd = ["ufw", action]
+    if proto:
+        cmd += ["proto", proto]
+    cmd += ["to", "any", "port", str(port).split("/")[0]]
     # ufw поддерживает комментарий к правилу (виден в status numbered)
     bad = chr(39) + chr(34) + chr(13) + chr(10)
     comment = str(comment or '')

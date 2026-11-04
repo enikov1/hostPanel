@@ -141,9 +141,13 @@ const sortedCountries = computed(() =>
   Object.keys(countries.value).sort((a, b) =>
     (countries.value[a] || a).localeCompare(countries.value[b] || b, 'ru')));
 
+/* Счётчики запросов: устаревший ответ не должен перетирать свежий. */
+let loadGen = 0;
+
 async function load(): Promise<void> {
   const s = siteState.site;
   if (!s) return;
+  const gen = ++loadGen;
   loading.value = true;
   err.value = '';
   try {
@@ -174,9 +178,10 @@ async function load(): Promise<void> {
     sec.ref_allow = [...(sd.ref_allow || [])];
     sec.block_empty_ref = !!sd.block_empty_ref;
   } catch (e: any) {
-    err.value = e.message || String(e);
+    if (gen === loadGen) { err.value = e.message || String(e); loading.value = false; }
+    return;
   }
-  loading.value = false;
+  if (gen === loadGen) loading.value = false;
 }
 
 const geoActive = computed(() => !!(sec.geo_allow.length || sec.geo_deny.length));
@@ -205,10 +210,39 @@ async function secGeoInstall(): Promise<void> {
 const newDeny = ref('');
 const newAllow = ref('');
 
+/** Проверка адреса: IPv4 — полностью, IPv6 — упрощённо (hex-группы через «:»). */
+function isValidIp(ip: string): boolean {
+  // IPv4: четыре числа 0–255
+  const m4 = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m4) return m4.slice(1).every((x) => +x >= 0 && +x <= 255);
+  // CIDR-префикс (например 10.0.0.0/8) — проверяем адресную часть
+  const slash = ip.indexOf('/');
+  if (slash > 0) {
+    const pl = ip.slice(slash + 1);
+    if (!/^\d{1,3}$/.test(pl) || +pl > 128) return false;
+    return isValidIp(ip.slice(0, slash));
+  }
+  // IPv6 (упрощённо): 2–8 групп hex через «:», допустимо одно «::»
+  if (ip.includes(':')) {
+    if (/[^0-9a-fA-F:]/.test(ip)) return false;
+    const dc = ip.split('::');
+    if (dc.length > 2) return false;
+    const groups = dc.flatMap((s) => (s === '' ? [] : s.split(':')));
+    if (groups.some((g) => !/^[0-9a-fA-F]{1,4}$/.test(g))) return false;
+    return groups.length >= 2 && groups.length <= 8;
+  }
+  return false;
+}
+
 function secAddIp(kind: 'deny' | 'allow'): void {
   const input = kind === 'deny' ? newDeny : newAllow;
   const ip = input.value.trim();
   if (!ip) return;
+  if (!isValidIp(ip)) {
+    toastErr(new Error('«' + ip + '» не похож на IP-адрес — проверьте ввод ' +
+      '(например 45.155.205.11 или 2a01:4f8::1)'));
+    return;
+  }
   const list = kind === 'deny' ? sec.ip_deny : sec.ip_allow;
   if (!list.includes(ip)) list.push(ip);
   input.value = '';
@@ -308,6 +342,8 @@ function refBlocked(d: string): boolean {
 /* ---------- анализ из логов ---------- */
 const logs = ref<any | null>(null);
 const statsLoading = ref(false);
+let statsGen = 0;
+let statsLoaded = false; // ленивая загрузка — только при первом открытии под-таба
 
 interface UaRow { ua: string; count: number; hint: string | null }
 interface RefRow { ref: string; count: number }
@@ -322,19 +358,30 @@ const topRefs = computed<RefRow[]>(() =>
 async function loadStats(): Promise<void> {
   const s = siteState.site;
   if (!s) return;
+  const gen = ++statsGen;
   statsLoading.value = true;
   try {
     const d = await api('/api/site/' + s.id + '/stats?days=30');
+    if (gen !== statsGen) return; // устаревший ответ — был более свежий запрос
     logs.value = d.stats || null;
-  } catch { logs.value = null; } /* анализ не должен ломать вкладку */
-  statsLoading.value = false;
+  } catch { if (gen === statsGen) logs.value = null; } /* анализ не должен ломать вкладку */
+  if (gen === statsGen) statsLoading.value = false;
+}
+
+/** Под-таб «Из логов»: статистика грузится лениво, при первом открытии. */
+function setSecTab(t: string): void {
+  secTab.value = t;
+  if (t === 'analysis' && !statsLoaded) {
+    statsLoaded = true;
+    void loadStats();
+  }
 }
 
 function fmtCount(n: number): string {
   return Number(n).toLocaleString('ru-RU');
 }
 
-onMounted(() => { load(); loadStats(); });
+onMounted(() => { load(); });
 
 /* ---------- сохранение (новая схема WAF 2.0) ---------- */
 async function secSave(): Promise<void> {
@@ -378,17 +425,17 @@ async function secSave(): Promise<void> {
       <!-- под-табы WAF -->
       <div class="tabs" style="margin-bottom:12px">
         <button class="tab" :class="{ active: secTab === 'geo' }"
-                @click="secTab = 'geo'">Страны</button>
+                @click="setSecTab('geo')">Страны</button>
         <button class="tab" :class="{ active: secTab === 'ip' }"
-                @click="secTab = 'ip'">IP-адреса</button>
+                @click="setSecTab('ip')">IP-адреса</button>
         <button class="tab" :class="{ active: secTab === 'bots' }"
-                @click="secTab = 'bots'">Боты и User-Agent</button>
+                @click="setSecTab('bots')">Боты и User-Agent</button>
         <button class="tab" :class="{ active: secTab === 'ref' }"
-                @click="secTab = 'ref'">Рефереры</button>
+                @click="setSecTab('ref')">Рефереры</button>
         <button class="tab" :class="{ active: secTab === 'protect' }"
-                @click="secTab = 'protect'">Защита и лимиты</button>
+                @click="setSecTab('protect')">Защита и лимиты</button>
         <button class="tab" :class="{ active: secTab === 'analysis' }"
-                @click="secTab = 'analysis'">Из логов</button>
+                @click="setSecTab('analysis')">Из логов</button>
       </div>
       <div v-show="secTab === 'geo'">      <!-- 1. Гео-доступ: два независимых списка стран -->
       <div class="card" style="margin:0 0 12px">

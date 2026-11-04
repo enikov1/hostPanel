@@ -89,8 +89,10 @@ function loadPrefs(): { k: string; a: boolean } {
 const prefs = loadPrefs();
 const sortKey = ref<string>(prefs.k);
 const sortAsc = ref<boolean>(prefs.a);
-const viewMode = ref<'list' | 'icons'>(
-  localStorage.getItem('fm_view') === 'icons' ? 'icons' : 'list');
+const viewMode = ref<'list' | 'icons'>((() => {
+  try { return localStorage.getItem('fm_view') === 'icons' ? 'icons' : 'list'; }
+  catch (e) { return 'list'; }
+})());
 
 function savePrefs(): void {
   try {
@@ -254,20 +256,26 @@ const crumbs = computed(() => {
 
 /* ================= загрузка и навигация ================= */
 
+/* Счётчик запросов списка: устаревший ответ не должен перетирать свежий. */
+let loadGen = 0;
+
 async function load(): Promise<void> {
+  const gen = ++loadGen;
   loading.value = true;
   loadErr.value = '';
   try {
     const data: DirData = await api('/api/files?path=' + encodeURIComponent(fmpath.value));
+    if (gen !== loadGen) return; // пока ждали — путь уже сменился
     d.value = data;
     sel.value = new Set();
     anchor = null;
     syncTree(data.path);
   } catch (e: any) {
+    if (gen !== loadGen) return;
     d.value = null;
     loadErr.value = e.message || String(e);
   } finally {
-    loading.value = false;
+    if (gen === loadGen) loading.value = false;
   }
 }
 
@@ -591,9 +599,15 @@ function chmodOpen(path: string, e?: FileItem): void {
 }
 
 async function chmodDo(): Promise<void> {
+  const octal = chmodOctal.value.trim();
+  // валидация: 1–4 цифры 0–7 (папкам разрешают и setgid 2xxx/4xxx)
+  if (!/^[0-7]{1,4}$/.test(octal)) {
+    toastErr(new Error('неверные права: нужны 3–4 восьмеричные цифры (например 644 или 755)'));
+    return;
+  }
   try {
     const r = await api('/api/files/chmod', { method: 'POST',
-      body: { path: chmodPath.value, octal: chmodOctal.value.trim() } });
+      body: { path: chmodPath.value, octal } });
     toast(r.message);
     chmodDlg.value = false;
     reload();
@@ -723,11 +737,14 @@ async function doMove(paths: string[], dest: string): Promise<void> {
 async function uploadFiles(files: File[]): Promise<void> {
   if (!files.length) return;
   let okc = 0;
+  // фиксируем папку-приёмник ДО цикла: пользователь может уйти в другую
+  // папку, пока файлы грузятся — тогда они уедут не туда
+  const dest = curPathC.value;
   for (const f of files) {
     const fd = new FormData();
     fd.append('file', f);
     try {
-      await apiForm('/api/files/upload?dest=' + encodeURIComponent(curPathC.value), fd);
+      await apiForm('/api/files/upload?dest=' + encodeURIComponent(dest), fd);
       okc++;
       uploadLog.value.push({ id: ++logSeq, name: f.name, ok: true, msg: '' });
     } catch (e: any) {

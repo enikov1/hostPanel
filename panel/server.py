@@ -361,7 +361,10 @@ class Handler(BaseHTTPRequestHandler):
         if ip in ("127.0.0.1", "::1"):
             fwd = (self.headers.get("X-Real-IP") or "").strip()
             if fwd:
-                return fwd.split(",")[0].strip()
+                cand = fwd.split(",")[0].strip()
+                # мусор в заголовке не должен попадать в LOGIN_FAILS
+                if utils.valid_ip(cand):
+                    return cand
         return ip
 
     def handle_login(self):
@@ -421,8 +424,9 @@ class Handler(BaseHTTPRequestHandler):
         must_change = bool(CTX.store.creds.get("must_change_password")) or \
             auth.verify("admin", CTX.store.creds)
         if must_change:
-            CTX.store.creds["must_change_password"] = True
-            CTX.store.save()
+            with STATE_LOCK:   # мутация creds + save — под общим замком
+                CTX.store.creds["must_change_password"] = True
+                CTX.store.save()
         return self.send_json({"ok": True, "token": token,
                                "must_change_password": must_change},
                               headers={"Set-Cookie": cookie})

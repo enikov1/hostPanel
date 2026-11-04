@@ -28,25 +28,37 @@ class _Flock:
         self.path = os.path.join(home, "state.lock")
         self.fd = None
 
+    _held = {}  # path -> [fd, depth] (реентерабельность в процессе)
+
     def __enter__(self):
         if fcntl is None:
             return self
+        held = _Flock._held.get(self.path)
+        if held:
+            held[1] += 1
+            self.fd = None  # вложенный вход: ничего не открываем/не ждём
+            return self
         try:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            self.fd = os.open(self.path, os.O_WRONLY | os.O_CREAT, 0o600)
-            fcntl.flock(self.fd, fcntl.LOCK_EX)
+            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            _Flock._held[self.path] = [fd, 1]
         except OSError:
             self.fd = None
         return self
 
     def __exit__(self, *exc):
-        if self.fd is not None:
-            try:
-                fcntl.flock(self.fd, fcntl.LOCK_UN)
-                os.close(self.fd)
-            except OSError:
-                pass
-            self.fd = None
+        held = _Flock._held.get(self.path)
+        if self.fd is not None and held:
+            held[1] -= 1
+            if held[1] <= 0:  # вложенность исчерпана — реально отпускаем
+                try:
+                    fcntl.flock(held[0], fcntl.LOCK_UN)
+                    os.close(held[0])
+                except OSError:
+                    pass
+                _Flock._held.pop(self.path, None)
+        self.fd = None
         return False
 
 

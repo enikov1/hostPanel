@@ -2,6 +2,7 @@
 """API: обзор, метрики, сессия, уведомления, журнал."""
 import datetime as dt
 import os
+import threading
 import time
 
 from ..context import CTX
@@ -11,6 +12,7 @@ from .router import get, post, ok, err, done
 
 _METRICS = {"cpu": 12.0, "prev_net": None, "prev_t": 0.0, "prev_stat": None,
             "net_in": 0.0, "net_out": 0.0, "hist": []}
+_METRICS_LOCK = threading.Lock()
 
 
 def _read_cpu_total():
@@ -23,6 +25,12 @@ def _read_cpu_total():
 
 def metrics():
     """Текущие метрики сервера: CPU, память, диск, сеть, load, аптайм."""
+    # _METRICS мутируется из разных request-потоков — нужен замок
+    with _METRICS_LOCK:
+        return _metrics_impl()
+
+
+def _metrics_impl():
     m = _METRICS
     while len(m["hist"]) < 12:
         m["hist"].insert(0, m["cpu"])

@@ -3,14 +3,20 @@
 фильтры безопасности, статистика, логи, нагрузка, конфиги."""
 import io
 import os
+import secrets
 import shutil
-import time
 
 from .. import config, utils
 from ..context import CTX, site_docroot_abs
 from ..core import templates, ssl as ssl_mod, nodejs, stats, security, \
     health, confeditor, packages
 from .router import get, post, ok, err, done, site_or_404
+
+
+def _new_site_id():
+    """Уникальный int-id сайта: случайный 62-битный токен вместо
+    time*1000 % 1e9 (при пакетном создании давал коллизии)."""
+    return secrets.randbits(62)
 
 
 @get("/api/sites")
@@ -103,7 +109,7 @@ def create_site(handler, body):
         docroot = body.get("docroot") or os.path.join(
             CTX.www_root, domain, "public_html")
     site = {
-        "id": int(time.time() * 1000) % 1_000_000_000,
+        "id": _new_site_id(),
         "domain": domain, "enabled": True, "parent": parent_id,
         "maintenance": False,
         "webserver": body.get("webserver", "nginx"),
@@ -173,6 +179,7 @@ def sites_import_archive(handler, body):
     file (zip), sql (файл дампа, необязательно), db_name (куда импортировать
     дамп, необязательно), engine (mysql|pg)."""
     import zipfile as _zipfile
+    from ..context import run
     from .. import utils
     from ..core import db as db_mod
 
@@ -207,7 +214,7 @@ def sites_import_archive(handler, body):
             return err("сайт уже существует")
         docroot = os.path.join(CTX.www_root, domain, "public_html")
         site = {
-            "id": int(time.time() * 1000) % 1_000_000_000,
+            "id": _new_site_id(),
             "domain": domain, "enabled": True, "parent": 0,
             "maintenance": False, "webserver": "nginx", "php": "",
             "php_modules": [], "docroot": docroot,
@@ -294,9 +301,41 @@ def update_site(handler, body):
     site, e = site_or_404(body)
     if e:
         return e
+    import re as _re
     for key in ("webserver", "php", "php_modules"):
         if key in body:
             site[key] = body[key]
+    # значения попадают в root-конфиги (nginx/fpm/systemd) — жёсткая валидация
+    if not _re.match(r"^(nginx[+]php|nginx[+]apache|apache|nginx[+]node|static)$",
+                     str(site.get("webserver") or "")):
+        return err("недопустимый веб-сервер")
+    if site.get("php") and not _re.match(r"^[0-9]+[.][0-9]+$", str(site["php"])):
+        return err("недопустимая версия PHP")
+    if isinstance(site.get("fpm"), dict):
+        f = site["fpm"]
+        if str(f.get("pm") or "dynamic") not in ("dynamic", "static",
+                                                 "ondemand"):
+            return err("недопустимый режим FPM")
+        for k in ("max_children", "start_servers"):
+            try:
+                v = int(f.get(k) or 0)
+            except (TypeError, ValueError):
+                return err("некорректное значение %s" % k)
+            if not (1 <= v <= 999):
+                return err("некорректное значение %s" % k)
+            f[k] = v
+    if isinstance(site.get("node"), dict):
+        n = site["node"]
+        try:
+            nport = int(n.get("port") or 0)
+        except (TypeError, ValueError):
+            return err("некорректный порт Node.js")
+        if not (1 <= nport <= 65535):
+            return err("некорректный порт Node.js")
+        n["port"] = nport
+        n["script"] = str(n.get("script") or "")[:200]
+        if chr(10) in n["script"] or chr(13) in n["script"]:
+            return err("некорректный скрипт Node.js")
     www_reissue = False
     if "www" in body:
         old_www = bool(site.get("www"))
@@ -354,14 +393,17 @@ def update_site(handler, body):
                          % site["domain"])
 
         def _reissue():
-            oki, erri = ssl_mod.issue(site, "letsencrypt")
-            if oki:
-                CTX.store.notify("Сертификат %s перевыпущен с www" %
-                                 site["domain"])
-            else:
-                CTX.store.notify("Перевыпуск сертификата %s не удался: %s"
-                                 % (site["domain"], (erri or "")[:150]), "err")
-            CTX.store.save()
+            from ..context import STATE_LOCK
+            with STATE_LOCK:   # мутация state + save — только под замком
+                oki, erri = ssl_mod.issue(site, "letsencrypt")
+                if oki:
+                    CTX.store.notify("Сертификат %s перевыпущен с www" %
+                                     site["domain"])
+                else:
+                    CTX.store.notify("Перевыпуск сертификата %s не удался: %s"
+                                     % (site["domain"], (erri or "")[:150]),
+                                     "err")
+                CTX.store.save()
         _th.Thread(target=_reissue, daemon=True).start()
         msg += "; сертификат перевыпускается с www-именем (уведомление придёт)"
     return done(msg)
@@ -508,7 +550,10 @@ def site_stats_api(handler, qs, sid):
     site = CTX.store.find_site(sid)
     if not site:
         return err("сайт не найден", 404)
-    days = int(qs.get("days", ["14"])[0] or 14)
+    try:
+        days = int(qs.get("days", ["14"])[0] or 14)
+    except (TypeError, ValueError):
+        return err("некорректный параметр days", 400)
     days = max(1, min(90, days))
     filtr = {}
     for key in ("code", "ip", "url", "since", "until"):
@@ -542,7 +587,11 @@ def site_logs(handler, qs, sid):
         return err("некорректный код статуса")
     if filtr.get("ip") and not utils.valid_ip(filtr["ip"]):
         return err("некорректный IP")
-    limit = min(int(qs.get("limit", ["300"])[0] or 300), 1000)
+    try:
+        limit = int(qs.get("limit", ["300"])[0] or 300)
+    except (TypeError, ValueError):
+        return err("некорректный параметр limit", 400)
+    limit = min(limit, 1000)
     lines, total = stats.read_log(site, kind, filtr=filtr, limit=limit)
     lp = templates.site_log_paths(site)
     return ok(lines=lines, total=total, filtered=len(lines),
@@ -995,7 +1044,8 @@ def save_security(handler, body):
         pat = str(r.get("pattern") or "").strip()
         if not pat:
             continue
-        if len(pat) > 150 or '"' in pat or "\\" in pat or "{" in pat:
+        if len(pat) > 150 or any(ch in pat
+                                 for ch in '"\\{};\r\n'):
             return err("недопустимый шаблон User-Agent: %s" % pat[:60])
         try:
             _re.compile(pat)
@@ -1020,6 +1070,7 @@ def save_security(handler, body):
         sec["geo_countries"] = countries
     if "geo_allow" in updates:
         sec["geo_allow"] = geo_allow[:100]
+    if "geo_deny" in updates:
         sec["geo_deny"] = geo_deny[:100]
     if "ip_allow" in updates:
         sec["ip_allow"] = ip_allow[:200]

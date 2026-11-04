@@ -193,15 +193,22 @@ def ensure_rate_limit_conf():
 WAF_CONF_PATH = "/etc/nginx/conf.d/hostpanel-waf.conf"
 
 
+def _safe_pattern(pat):
+    """Паттерн безопасен для подстановки в nginx map/if: без кавычек,
+    бэкслешей, фигурных скобок, ';' и переводов строк (иначе — инъекция
+    в конфиг nginx). Defensive: save_security валидация уже отвергает."""
+    pat = pat.strip()
+    return pat and not any(ch in pat for ch in '"\\{};\r\n')
+
+
 def _ua_lines_for(sec, key):
     """Строки map $http_user_agent для сайта (ok/deny)."""
     lines = []
     # белые списки выше запрещающих: в nginx map первое совпадение выигрывает
     import re as _re
     for pat in (sec.get("ua_allow_patterns") or []):
-        pat = pat.strip()
-        if pat and '"' not in pat and '\\' not in pat and "{" not in pat:
-            lines.append('    ~*%s allow;' % pat)
+        if _safe_pattern(pat):
+            lines.append('    ~*%s allow;' % pat.strip())
     if _re.search(config.SEARCH_ENGINE_RE.replace("~*", ""),
                   "Googlebot", _re.I):
         # поисковые роботы не блокируются категориями — явный allow первым
@@ -214,9 +221,8 @@ def _ua_lines_for(sec, key):
         if cat:
             lines.append('    ~*(%s) deny;' % cat[0])
     for r in (sec.get("ua_rules") or []):
-        pat = (r.get("pattern") or "").strip()
-        if pat and '"' not in pat and '\\' not in pat and "{" not in pat:
-            lines.append('    ~*%s deny;' % pat)
+        if _safe_pattern(r.get("pattern") or ""):
+            lines.append('    ~*%s deny;' % (r.get("pattern") or "").strip())
     return lines
 
 
@@ -224,13 +230,17 @@ def _ref_lines_for(sec):
     lines = []
     import re as _re
     for d in (sec.get("ref_allow") or []):
-        if utils.valid_domain(d):
-            lines.append('    ~*https?://([^/]*\\.)?%s allow;' % d)
+        # точку домена экранируем: %s в regex, 'spam.site.com' иначе
+        # матчит любой символ ('spamXsiteXcom')
+        if utils.valid_domain(d) and _safe_pattern(d):
+            lines.append('    ~*https?://([^/]*\\.)?%s allow;'
+                         % d.strip().replace(".", "\\."))
     if sec.get("block_empty_ref"):
         lines.append('    "" deny;')
     for d in (sec.get("ref_block") or []):
-        if utils.valid_domain(d):
-            lines.append('    ~*https?://([^/]*\\.)?%s deny;' % d)
+        if utils.valid_domain(d) and _safe_pattern(d):
+            lines.append('    ~*https?://([^/]*\\.)?%s deny;'
+                         % d.strip().replace(".", "\\."))
     return lines
 
 
@@ -313,25 +323,6 @@ def apply_security(site):
     return True, ""
 
 
-def apply_security(site):
-    """Применяет фильтры сайта: обновляет geo/ratelimit конфиги,
-    перегенерирует конфиг сайта и проверяет синтаксис nginx."""
-    from . import templates
-    if CTX.demo:
-        return True, "демо: фильтры сохранены"
-    if any(m != "off" for _d, m, _c in geo_wanted_countries()):
-        ok, err = ensure_geo_map()
-        if not ok:
-            return False, "гео-конфиг: %s" % err
-    ok, err = ensure_rate_limit_conf()
-    if not ok:
-        return False, "rate-limit конфиг: %s" % err
-    ok, err = templates.write_site_configs(site)
-    if not ok:
-        return False, err
-    return True, ""
-
-
 def site_section(site, sec=None):
     """Собирает секцию фильтров конкретного сайта (с map-ключом)."""
     sec = sec or site.get("security") or {}
@@ -378,10 +369,11 @@ def apache_filters(sec):
 def security_status(sec):
     """Краткое описание активных фильтров для UI."""
     parts = []
-    if sec.get("geo_mode") == "allow":
-        parts.append("только %s" % ", ".join(sec.get("geo_countries") or []))
-    elif sec.get("geo_mode") == "deny":
-        parts.append("кроме %s" % ", ".join(sec.get("geo_countries") or []))
+    allow, deny = geo_lists(sec)   # новая схема geo_allow/geo_deny (+миграция)
+    if allow:
+        parts.append("только из: %s" % ", ".join(allow))
+    if deny:
+        parts.append("кроме: %s" % ", ".join(deny))
     if sec.get("ip_deny"):
         parts.append("IP-блок: %d" % len(sec["ip_deny"]))
     if sec.get("ip_allow"):

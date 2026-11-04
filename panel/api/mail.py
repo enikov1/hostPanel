@@ -3,7 +3,7 @@
 import os
 import re
 
-from .. import config
+from .. import config, utils
 from ..context import CTX
 from ..core import mail as mail_core
 from .router import get, post, ok, err, done
@@ -138,7 +138,8 @@ def mail_dkim_generate(handler, body):
     """Генерация DKIM-ключей: opendkim-genkey, при его отсутствии —
     openssl (RSA 1024 + вычисление публичной части для TXT)."""
     domain = (body.get("domain") or "").strip().lower()
-    if not re.match(r"^[a-z0-9.\-]{3,255}$", domain):
+    if not re.match(r"^[a-z0-9.\-]{3,255}$", domain) or ".." in domain \
+            or not utils.valid_domain(domain):
         return err("некорректный домен")
     if CTX.demo:
         return done("демо: DKIM-ключ сгенерирован")

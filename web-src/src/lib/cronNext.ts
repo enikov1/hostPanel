@@ -77,7 +77,11 @@ export function nextRunCron(expr: string, from: Date = new Date()): Date | null 
       if (sameDay && h < start.getHours()) continue;
       for (const m of minsAsc) {
         if (sameDay && h === start.getHours() && m < start.getMinutes()) continue;
-        return new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m, 0);
+        const cand = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m, 0);
+        // запуск всегда в секунду 0: если секунды from уже ушли вперёд,
+        // этот слот «сейчас» в прошлом — результат должен быть >= from
+        if (cand.getTime() < from.getTime()) continue;
+        return cand;
       }
     }
   }

@@ -16,9 +16,12 @@ const router = useRouter();
 const subOpen = ref(false);
 
 /* режим обслуживания */
+const maintBusy = ref(false);
+
 async function toggleMaintenance(): Promise<void> {
   const s = siteState.site;
-  if (!s) return;
+  if (!s || maintBusy.value) return; // защита от двойного клика
+  maintBusy.value = true;
   try {
     const r = await api('/api/sites/maintenance', { method: 'POST',
       body: { id: s.id, enabled: !s.maintenance } });
@@ -27,6 +30,7 @@ async function toggleMaintenance(): Promise<void> {
     const updated = (d.sites || []).find((x: any) => x.id === s.id);
     if (updated) siteState.site = updated;
   } catch (e) { toastErr(e); }
+  maintBusy.value = false;
 }
 
 /* проверка здоровья сайта (аудит) */
@@ -36,7 +40,7 @@ const audit = ref<any | null>(null);
 
 async function siteAuditDlg(): Promise<void> {
   const s = siteState.site;
-  if (!s) return;
+  if (!s || auditLoading.value) return; // защита от двойного клика
   audit.value = null;
   auditLoading.value = true;
   auditOpen.value = true;
@@ -95,10 +99,11 @@ function auditPillText(st: string): string {
             (HTTP 503). Файлы и настройки сохраняются.</span>
         </UiCheckbox>
         <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:10px">
-          <button class="btn" :class="siteState.site.maintenance ? 'danger' : ''" @click="toggleMaintenance()">
+          <button class="btn" :disabled="maintBusy"
+                  :class="siteState.site.maintenance ? 'danger' : ''" @click="toggleMaintenance()">
             <UiIcon name="wrench" :size="15" />
             {{ siteState.site.maintenance ? 'Выключить обслуживание' : 'Режим обслуживания (503)' }}</button>
-          <button class="btn" @click="siteAuditDlg()">
+          <button class="btn" :disabled="auditLoading" @click="siteAuditDlg()">
             <UiIcon name="shield" :size="15" /> Проверка здоровья сайта</button>
         </div>
         <div v-if="siteState.site.maintenance" class="notice warn" style="margin-top:10px">

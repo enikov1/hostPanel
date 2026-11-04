@@ -130,6 +130,8 @@ def db_import(handler, body):
     """Импорт SQL-дампа в базу (multipart: name, engine, file).
 
     Тело читается из handler напрямую (как в /api/files/upload)."""
+    if getattr(handler, "_oversized", False):
+        return err("файл слишком большой", 413)
     ctype = handler.headers.get("Content-Type", "")
     parts = utils.parse_multipart(handler.read_body(), ctype)
     name, engine, data, fname = "", "mysql", None, ""
@@ -281,13 +283,20 @@ def firewall(handler, qs):
 def firewall_add(handler, body):
     import re
     port = str(body.get("port", ""))
-    if not re.match(r"^\d{1,5}(/\d{1,5})?(:\d{1,5})?$", port) or \
-            not (1 <= int(port.split("/")[0].split(":")[0]) <= 65535):
+    if not re.match(r"^\d{1,5}(/\d{1,5})?(:\d{1,5})?$", port):
         return err("некорректный порт")
+    # диапазон (8000:8080, 100/200) — проверяем ОБА конца на 1–65535
+    for part in re.split(r"[:/]", port):
+        if not (1 <= int(part) <= 65535):
+            return err("некорректный порт")
     if body.get("action", "allow") not in ("allow", "deny"):
         return err("некорректное действие")
+    proto = str(body.get("proto", "tcp") or "tcp").lower()
+    if proto not in ("tcp", "udp", "both"):
+        return err("некорректный протокол (tcp/udp)")
+    # ufw: proto указывается один раз; 'both' — правило без proto
     okc, errs = services.firewall_add(port, body.get("action", "allow"),
-                                      body.get("proto", "tcp"),
+                                      "" if proto == "both" else proto,
                                       body.get("comment", ""))
     if okc:
         return done("правило добавлено")
@@ -459,6 +468,8 @@ def files_zip(handler, body):
 
 @post("/api/files/upload")
 def files_upload(handler, body):
+    if getattr(handler, "_oversized", False):
+        return err("файл слишком большой", 413)
     ctype = handler.headers.get("Content-Type", "")
     parts = utils.parse_multipart(handler.read_body(), ctype)
     dest_dir = urllib.parse.parse_qs(

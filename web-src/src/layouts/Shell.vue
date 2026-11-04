@@ -91,15 +91,25 @@ async function bellClear(): Promise<void> {
 const q = ref('');
 const gsItems = ref<any[]>([]);
 const gsOpen = ref(false);
+let gsTimer: ReturnType<typeof setTimeout> | null = null;
+let searchGen = 0; // устаревший ответ не должен перетирать свежий
 
-async function searchGo(): Promise<void> {
+/** Debounce 300 мс: запрос уходит не на каждый символ. */
+function searchGo(): void {
+  if (gsTimer) clearTimeout(gsTimer);
+  gsTimer = setTimeout(() => { gsTimer = null; searchGoNow(); }, 300);
+}
+
+async function searchGoNow(): Promise<void> {
+  const gen = ++searchGen;
   const query = q.value.trim();
   if (query.length < 2) { gsOpen.value = false; return; }
   try {
     const d = await api('/api/search?q=' + encodeURIComponent(query));
+    if (gen !== searchGen) return; // пока ждали — запрос уже изменился
     gsItems.value = d.results || [];
     gsOpen.value = gsItems.value.length > 0;
-  } catch (e) { gsOpen.value = false; }
+  } catch (e) { if (gen === searchGen) gsOpen.value = false; }
 }
 
 function gsPick(r: any): void {
@@ -119,13 +129,19 @@ function clickOutside(e: MouseEvent): void {
   if (!t.closest('.gs-wrap')) gsOpen.value = false;
 }
 
+const bellTimer = ref<ReturnType<typeof setInterval> | null>(null);
+
 onMounted(() => {
   refreshBell();
-  setInterval(refreshBell, 60000);
+  bellTimer.value = setInterval(refreshBell, 60000);
   checkUpdate();
   document.addEventListener('click', clickOutside);
 });
-onBeforeUnmount(() => { document.removeEventListener('click', clickOutside); });
+onBeforeUnmount(() => {
+  document.removeEventListener('click', clickOutside);
+  if (bellTimer.value) clearInterval(bellTimer.value);
+  if (gsTimer) { clearTimeout(gsTimer); gsTimer = null; }
+});
 </script>
 
 <template>

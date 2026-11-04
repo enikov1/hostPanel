@@ -200,6 +200,16 @@ function onFindEnter(ev: KeyboardEvent): void {
 watch(query, () => { curMatch.value = 0; nextTick(applyFind); });
 watch(() => props.lang, () => render());
 
+/* Внешнее изменение modelValue (не ввод пользователя) — синхронизируем
+   textarea и подсветку. При собственном вводе значение в textarea уже
+   совпадает, поэтому курсор не сбрасывается. */
+watch(() => props.modelValue, (v) => {
+  if (ta.value && ta.value.value !== v) {
+    ta.value.value = v;
+    render();
+  }
+});
+
 onMounted(() => {
   if (ta.value) ta.value.value = props.modelValue;
   render();

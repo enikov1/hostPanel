@@ -3,7 +3,7 @@
    Модули: включённые в PHP (из php -m, с пилюлей) + доступные в apt.
    Кнопка установки появляется только при выборе новых модулей.
    Пул FPM: человеческие подписи и пояснения к каждому параметру. */
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../../api/client';
 import { toast, toastErr } from '../../lib/toast';
@@ -26,27 +26,35 @@ const PM_MODES: Record<string, string> = {
   ondemand: 'Процесс запускается только при обращении. Экономно для редко посещаемых сайтов.',
 };
 
+/* Счётчик запросов модулей: при быстрой смене версии PHP устаревший
+   ответ не должен перетирать список свежей версии. */
+let modulesGen = 0;
+
 async function loadModules(version: string): Promise<void> {
   if (!version) return;
+  const gen = ++modulesGen;
   try {
     const p = await api('/api/php');
     const list = ((p.versions || {})[version] || []) as string[];
+    if (gen !== modulesGen) return;
     siteState.modAvail = list;
   } catch (e) { /* тихо */ }
   try {
     const m = await api('/api/php/modules?version=' + encodeURIComponent(version));
+    if (gen !== modulesGen) return;
     installedSet.value = new Set<string>(m.installed || []);
     aptAvailable.value = (m.available || []) as string[];
   } catch (e) { /* тихо */ }
 }
 
 /* смена версии PHP — список модулей обновляется, галочки сбрасываются
-   (как stPhpChanged в оригинале) */
+   (как stPhpChanged в оригинале); сброс — ДО await, чтобы на время
+   загрузки не остались отмеченными модули чужой версии */
 watch(() => siteState.f_php, async (v) => {
   selectedNew.value = [];
   installLog.value = [];
-  await loadModules(v);
   siteState.f_php_modules = [];
+  await loadModules(v); // внутри — свой gen-счётчик против гонки версий
 }, { immediate: true });
 
 /** Доступные в apt пакеты, ещё не установленные (без префикса phpX.Y-). */
@@ -67,12 +75,18 @@ function toggleNew(m: string, checked: boolean): void {
   if (!checked && i >= 0) selectedNew.value.splice(i, 1);
 }
 
+/* Опрос фоновой задачи: после размонтирования вкладки цикл останавливается. */
+let phpUnmounted = false;
+onBeforeUnmount(() => { phpUnmounted = true; });
+
 async function pollTask(): Promise<void> {
   for (let i = 0; i < 150; i++) {
+    if (phpUnmounted) return;
     try {
       const t = await api('/api/packages/task');
       if (!t.running) return;
     } catch (e) { return; }
+    if (phpUnmounted) return;
     await new Promise((r) => setTimeout(r, 2000));
   }
 }

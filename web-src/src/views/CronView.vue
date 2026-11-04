@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /* ============ Страница: Планировщик (cron) + выбор файла ============ */
-import { ref, computed, onMounted, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { api } from '../api/client';
 import { toast, toastErr } from '../lib/toast';
 import { confirmDlg } from '../lib/confirm';
 import { cronHuman } from '../lib/format';
+import { nextRunCron } from '../lib/cronNext';
 import UiIcon from '../components/UiIcon.vue';
 import AppModal from '../components/AppModal.vue';
 import UiSelect from '../components/ui/UiSelect.vue';
@@ -13,6 +14,8 @@ import FilePickerModal from './cron/FilePickerModal.vue';
 
 interface CronJob { expr: string; command: string; comment?: string; enabled: boolean }
 interface SiteRow { domain: string; docroot: string }
+interface LastRun { code: number; at: Date }
+interface CronTemplate { icon: string; title: string; desc: string; expr: string; command: string; comment: string }
 
 const CRON_PRESETS: [string, string][] = [
   ['* * * * *', 'каждую минуту'],
@@ -28,6 +31,42 @@ const CRON_PRESETS: [string, string][] = [
   ['0 3 1 * *', '1-го числа в 03:00'],
 ];
 
+/* ---- готовые задачи в один клик ---- */
+const TEMPLATES: CronTemplate[] = [
+  { icon: 'archive', title: 'Ежедневный бэкап всех сайтов', desc: 'Копия всех сайтов и баз раз в сутки',
+    expr: '0 3 * * *', command: 'hcp-backup --all', comment: 'Ежедневный бэкап всех сайтов' },
+  { icon: 'file', title: 'Еженедельная очистка старых логов', desc: 'Сжатые логи старше 30 дней удаляются',
+    expr: '0 4 * * 0', command: "find /var/log/hostpanel -name '*.gz' -mtime +30 -delete",
+    comment: 'Еженедельная очистка старых логов' },
+  { icon: 'pkg', title: 'Очистка кеша apt', desc: 'Освобождает место на диске по воскресеньям',
+    expr: '0 5 * * 0', command: 'apt-get clean', comment: 'Очистка кеша apt по воскресеньям' },
+  { icon: 'globe', title: 'Проверка доступности сайта', desc: 'Проверка каждые 5 минут — впишите свой домен вместо СУБДОМЕН',
+    expr: '*/5 * * * *', command: 'curl -fsS http://СУБДОМЕН/ -o /dev/null || echo FAIL',
+    comment: 'Проверка доступности сайта' },
+  { icon: 'trash', title: 'Удаление временных файлов', desc: 'Файлы в /tmp старше недели удаляются раз в час',
+    expr: '0 * * * *', command: 'find /tmp -type f -mtime +7 -delete',
+    comment: 'Удаление временных файлов раз в час' },
+];
+
+/* ---- форматирование дат (кратко: «5 ноя, 03:00») ---- */
+const MONS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+function fmtHM(d: Date): string {
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function fmtNext(d: Date): string {
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return 'сегодня в ' + fmtHM(d);
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  if (d.toDateString() === tomorrow.toDateString()) return 'завтра в ' + fmtHM(d);
+  return d.getDate() + ' ' + MONS_SHORT[d.getMonth()] + ', ' + fmtHM(d);
+}
+function fmtLastAt(d: Date): string {
+  const now = new Date();
+  const day = d.toDateString() === now.toDateString() ? 'сегодня'
+    : d.getDate() + ' ' + MONS_SHORT[d.getMonth()];
+  return day + ' ' + fmtHM(d);
+}
+
 /* ---- данные страницы ---- */
 const pageState = ref<'loading' | 'ok' | 'fail'>('loading');
 const jobs = ref<CronJob[]>([]);
@@ -40,9 +79,77 @@ const systemJobs = ref<string[]>([]);
 const autoHuman = computed(() => cronHuman(autoCron.value) || 'cron');
 const sslHuman = computed(() => cronHuman(sslAutoCron.value) || 'cron');
 
-const jobRows = computed(() => jobs.value.map((j, i) => ({
-  j, i, human: cronHuman(j.expr),
-})));
+/* ---- следующий запуск (клиентский расчёт cron) ---- */
+const nowTick = ref(0); // тик раз в минуту — пересчитать «следующий запуск»
+let nowTimer: ReturnType<typeof setInterval> | null = null;
+
+const jobRows = computed(() => {
+  void nowTick.value; // зависимость: пересчёт каждую минуту
+  return jobs.value.map((j, i) => {
+    const next = j.enabled ? nextRunCron(j.expr) : null;
+    return { j, i, human: cronHuman(j.expr), next };
+  });
+});
+
+/* сводка: всего задач / включено / ближайший запуск */
+const enabledCount = computed(() => jobs.value.filter((j) => j.enabled).length);
+const nextOverall = computed(() => {
+  void nowTick.value;
+  let best: Date | null = null;
+  for (const j of jobs.value) {
+    if (!j.enabled) continue;
+    const n = nextRunCron(j.expr);
+    if (n && (!best || n < best)) best = n;
+  }
+  return best;
+});
+
+/* ---- статус последнего запуска (из журнала) ---- */
+const lastRuns = ref<Record<string, LastRun | null>>({}); // ключ — команда задачи
+let lastRunGen = 0;
+
+async function loadLastRuns(): Promise<void> {
+  const gen = ++lastRunGen;
+  const targets = jobs.value.filter((j) => j.enabled && j.command);
+  const results = await Promise.all(targets.map(async (j): Promise<LastRun | null> => {
+    try {
+      const d = await api('/api/cron/log?command=' + encodeURIComponent(j.command));
+      return parseLastRun(d.lines || []);
+    } catch { return null; } // ошибка одной задачи не ломает список
+  }));
+  if (gen !== lastRunGen) return; // устаревший ответ — список уже менялся
+  const map: Record<string, LastRun | null> = {};
+  targets.forEach((j, k) => { map[j.command] = results[k]; });
+  for (const j of jobs.value) if (j.enabled && !(j.command in map)) map[j.command] = null;
+  lastRuns.value = map;
+}
+
+/** Последний блок журнала: «=== дата запускаю: …» … «[код завершения: N]» */
+function parseLastRun(lines: string[]): LastRun | null {
+  let start = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].startsWith('===')) { start = i; break; }
+  }
+  if (start < 0) return null;
+  const dm = lines[start].match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  let code = -1;
+  for (let i = start + 1; i < lines.length; i++) {
+    const cm = lines[i].match(/\[код завершения: (-?\d+)\]/);
+    if (cm) { code = +cm[1]; break; }
+  }
+  if (code < 0) return null; // блок без кода завершения — не считаем
+  const at = dm ? new Date(+dm[1], +dm[2] - 1, +dm[3], +dm[4], +dm[5]) : new Date();
+  return { code, at };
+}
+
+function lastRunView(j: CronJob): { cls: string; text: string } | null {
+  if (!j.enabled) return null;
+  const info = lastRuns.value[j.command];
+  if (info === undefined) return null; // ещё загружается
+  if (info === null) return { cls: 'pill gray', text: 'ещё не запускалась' };
+  if (info.code === 0) return { cls: 'pill ok', text: 'последний запуск: ок, ' + fmtLastAt(info.at) };
+  return { cls: 'pill err', text: 'ошибка (код ' + info.code + '), ' + fmtLastAt(info.at) };
+}
 
 async function load(): Promise<void> {
   let d: any;
@@ -54,9 +161,17 @@ async function load(): Promise<void> {
   sslAuto.value = !!d.ssl_auto;
   sslAutoCron.value = d.ssl_auto_cron || '30 3,15 * * *';
   systemJobs.value = d.system_jobs || [];
+  tmplOpen.value = !(d.jobs || []).length; // новичку сразу показать шаблоны
   pageState.value = 'ok';
+  loadLastRuns(); // не блокирует рендер списка
 }
-onMounted(load);
+onMounted(() => {
+  load();
+  nowTimer = setInterval(() => { nowTick.value++; }, 60000);
+});
+onUnmounted(() => {
+  if (nowTimer) { clearInterval(nowTimer); nowTimer = null; }
+});
 
 /* ---- сохранение ---- */
 async function cronSave(): Promise<void> {
@@ -70,6 +185,7 @@ async function cronSave(): Promise<void> {
     } });
     toast(r.message);
   } catch (e) { toastErr(e); }
+  loadLastRuns(); // состав/команды задач могли измениться
 }
 
 function toggleJob(i: number, checked: boolean): void {
@@ -94,6 +210,14 @@ const editHuman = computed(() => {
   return h ? 'Это значит: ' + h
     : 'Формат cron: минуты часы день-месяца месяц день-недели — 5 полей через пробел';
 });
+const editNext = computed(() => {
+  const d = nextRunCron(fExpr.value);
+  return d ? 'Следующий запуск при таком расписании: ' + fmtNext(d) : '';
+});
+
+function loadSites(): void {
+  api('/api/sites').then((d) => { sites.value = d.sites || []; }).catch(() => {});
+}
 
 function remember(): void {
   if (editOpen.value)
@@ -115,7 +239,21 @@ function openEdit(idx: number): void {
   fCmt.value = j.comment || '';
   siteSel.value = '';
   editOpen.value = true;
-  api('/api/sites').then((d) => { sites.value = d.sites || []; }).catch(() => {});
+  loadSites();
+}
+
+/* задача из шаблона — та же модалка, предзаполненная */
+function useTemplate(t: CronTemplate): void {
+  draft = null;
+  editIdx.value = -1;
+  fExpr.value = t.expr;
+  fCmd.value = t.command;
+  fCmt.value = t.comment;
+  siteSel.value = '';
+  editOpen.value = true;
+  loadSites();
+  if (t.command.includes('СУБДОМЕН'))
+    toast('Впишите адрес своего сайта вместо СУБДОМЕН', 'warn');
 }
 
 function siteInsert(): void {
@@ -189,17 +327,20 @@ function openLog(i: number): void {
 const runOpen = ref(false);
 const runTitle = ref('');
 const runResult = ref<{ code: number; output: string } | null>(null);
+let runGen = 0; // результат первой задачи не должен перетирать результат второй
 
 async function openRun(i: number): Promise<void> {
+  const gen = ++runGen;
   const j = jobs.value[i] || ({ expr: '', command: '', enabled: false } as CronJob);
   runTitle.value = (j.comment || j.command || '').slice(0, 60);
   runResult.value = null;
   runOpen.value = true;
   try {
     const r = await api('/api/cron/run', { method: 'POST', body: { index: i } });
-    if (!runOpen.value) return;
+    if (gen !== runGen || !runOpen.value) return;
     runResult.value = { code: r.code, output: r.output || '' };
-  } catch (e) { toastErr(e); }
+    loadLastRuns(); // задача только что выполнилась — обновить статус
+  } catch (e) { if (gen === runGen) toastErr(e); }
 }
 
 /* ---- выбор файла (мини-проводник) ---- */
@@ -223,6 +364,9 @@ function onPick(p: string): void {
   editOpen.value = true;
   toast('Путь вставлен — допишите команду');
 }
+
+/* ---- карточка шаблонов: раскрыть/свернуть ---- */
+const tmplOpen = ref(false);
 </script>
 
 <template>
@@ -234,6 +378,17 @@ function onPick(p: string): void {
         <div><b>Планировщик</b> запускает команду автоматически:
           например, раз в ночь делать выгрузку базы или раз в час чистить временные файлы.
           Интервал выбирается готовыми кнопками — писать cron вручную не обязательно.</div>
+      </div>
+
+      <!-- сводка -->
+      <div v-if="jobs.length" class="card" style="padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="pill">задач: {{ jobs.length }}</span>
+          <span class="pill" :class="enabledCount ? 'ok' : 'gray'">включено: {{ enabledCount }}</span>
+          <span v-if="nextOverall" class="pill info">
+            <UiIcon name="clock" :size="12" />ближайший запуск: {{ fmtNext(nextOverall) }}</span>
+          <span v-else-if="enabledCount === 0" class="pill gray">все задачи выключены</span>
+        </div>
       </div>
 
       <div class="toolbar">
@@ -253,17 +408,54 @@ function onPick(p: string): void {
         <span class="faint" style="font-size:11.5px">{{ sslHuman }}</span>
       </div>
 
+      <!-- готовые задачи в один клик -->
+      <div class="card">
+        <div class="card-h" style="cursor:pointer;margin-bottom:0" @click="tmplOpen = !tmplOpen">
+          <UiIcon name="zap" :size="16" />
+          <span class="card-t">Шаблоны задач</span>
+          <span class="card-spacer"></span>
+          <span class="pill gray">готовые задачи в один клик</span>
+          <button class="btn sm" type="button" :title="tmplOpen ? 'Свернуть' : 'Развернуть'">
+            <UiIcon :name="tmplOpen ? 'up' : 'down'" :size="13" /></button>
+        </div>
+        <div v-if="tmplOpen" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px">
+          <div v-for="t in TEMPLATES" :key="t.title"
+               style="flex:1 1 260px;min-width:240px;border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <UiIcon :name="t.icon" :size="16" />
+              <b style="font-size:13.5px">{{ t.title }}</b>
+            </div>
+            <div class="faint" style="font-size:12px;margin:6px 0 4px">{{ t.desc }}</div>
+            <div style="margin:2px 0 8px">
+              <span class="pill info">{{ cronHuman(t.expr) }}</span>
+            </div>
+            <div class="mono faint" style="font-size:11px;word-break:break-all;margin-bottom:10px">{{ t.command }}</div>
+            <button class="btn sm primary" @click="useTemplate(t)">
+              <UiIcon name="plus" :size="13" />Добавить</button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="jobs.length" class="card" style="padding:6px 10px">
         <div class="twrap"><table>
-          <thead><tr><th>Расписание</th><th>Команда</th><th>Описание</th><th>Вкл.</th><th></th></tr></thead>
+          <thead><tr><th>Расписание</th><th>Команда</th><th>Последний запуск</th><th>Вкл.</th><th></th></tr></thead>
           <tbody>
             <tr v-for="row in jobRows" :key="row.i">
               <td>
                 <span class="mono">{{ row.j.expr }}</span>
                 <div v-if="row.human" class="faint" style="font-size:11.5px;margin-top:2px">{{ row.human }}</div>
+                <div v-if="row.next" class="faint" style="font-size:11.5px;margin-top:2px;display:flex;align-items:center;gap:4px">
+                  <UiIcon name="clock" :size="11" />следующий запуск: {{ fmtNext(row.next) }}</div>
               </td>
-              <td class="mono" style="word-break:break-all">{{ row.j.command }}</td>
-              <td class="muted">{{ row.j.comment || '' }}</td>
+              <td style="word-break:break-all">
+                <span class="mono">{{ row.j.command }}</span>
+                <div v-if="row.j.comment" class="faint" style="font-size:11.5px;margin-top:2px">{{ row.j.comment }}</div>
+              </td>
+              <td>
+                <span v-if="lastRunView(row.j)" :class="lastRunView(row.j)!.cls">{{ lastRunView(row.j)!.text }}</span>
+                <span v-else-if="row.j.enabled" class="faint" style="font-size:11.5px">проверяем журнал…</span>
+                <span v-else class="faint" style="font-size:11.5px">—</span>
+              </td>
               <td><UiCheckbox :model-value="row.j.enabled"
                               @update:model-value="(v) => toggleJob(row.i, v)" /></td>
               <td>
@@ -309,6 +501,7 @@ function onPick(p: string): void {
       </div>
       <input v-model="fExpr" type="text" class="mono" placeholder="0 3 * * *" @input="remember()">
       <div class="faint" style="font-size:12px;margin-top:5px">{{ editHuman }}</div>
+      <div v-if="editNext" class="notice info" style="margin-top:8px;font-size:12.5px">{{ editNext }}</div>
     </div>
     <div class="field">
       <label>Команда</label>

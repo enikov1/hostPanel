@@ -31,6 +31,13 @@ const filtersOn = ref(false);
 const auto = ref(false);
 let autoTimer: ReturnType<typeof setInterval> | null = null;
 
+/* Счётчик запросов журнала: переключение access/error или фильтров не должно
+   давать устаревшему ответу перетирать свежий. */
+let logGen = 0;
+
+/* Debounce фильтров: запрос не должен лететь на каждый символ. */
+let filterTimer: ReturnType<typeof setTimeout> | null = null;
+
 const CODES = ['200', '301', '302', '304', '403', '404', '429', '500', '502', '503'];
 
 function lineCls(l: string): string {
@@ -44,10 +51,12 @@ function lineCls(l: string): string {
 async function siteLog(kind: 'access' | 'error'): Promise<void> {
   const s = siteState.site;
   if (!s) return;
+  const gen = ++logGen;
   logKind.value = kind;
   let d: any;
   try { d = await api('/api/site/' + s.id + '/logs?type=' + kind); }
   catch (e) { toastErr(e); return; }
+  if (gen !== logGen) return; // пока ждали — журнал уже переключили
   renderLogBox(d);
 }
 
@@ -68,9 +77,11 @@ function resetFilters(): void {
   applyLogFilters();
 }
 
-async function applyLogFilters(): Promise<void> {
+/** Запрос с фильтрами (без задержки) — вызывается из debounce и по change. */
+async function applyLogFiltersNow(): Promise<void> {
   const s = siteState.site;
   if (!s) return;
+  const gen = ++logGen;
   const p = new URLSearchParams();
   p.set('type', logKind.value || 'access');
   if (fQ.value) p.set('q', fQ.value);
@@ -85,8 +96,15 @@ async function applyLogFilters(): Promise<void> {
     fSince.value || fUntil.value || fErr.value || fBots.value);
   try {
     const d = await api('/api/site/' + s.id + '/logs?' + p.toString());
+    if (gen !== logGen) return; // устаревший ответ — фильтры уже менялись
     void renderLogBox(d);
   } catch (e) { toastErr(e); }
+}
+
+/** Debounce 400 мс: при наборе текста в фильтрах запрос уходит один раз. */
+function applyLogFilters(): void {
+  if (filterTimer) clearTimeout(filterTimer);
+  filterTimer = setTimeout(() => { filterTimer = null; applyLogFiltersNow(); }, 400);
 }
 
 /** Очистка ТОЛЬКО активного журнала — чтобы нельзя было ошибиться. */
@@ -112,8 +130,12 @@ function logsClear(): void {
 function toggleAuto(): void {
   if (auto.value) {
     autoTimer = setInterval(() => {
+      const gen = ++logGen;
       void api('/api/site/' + (siteState.site?.id || 0) + '/logs?type=' +
-        logKind.value).then(renderLogBox).catch(() => { /* тихо */ });
+        logKind.value).then((d) => {
+          if (gen !== logGen) return;
+          renderLogBox(d);
+        }).catch(() => { /* тихо */ });
     }, 10000);
   } else if (autoTimer) {
     clearInterval(autoTimer);
@@ -122,7 +144,10 @@ function toggleAuto(): void {
 }
 
 onMounted(() => { void siteLog('access'); });
-onBeforeUnmount(() => { if (autoTimer) clearInterval(autoTimer); });
+onBeforeUnmount(() => {
+  if (autoTimer) clearInterval(autoTimer);
+  if (filterTimer) { clearTimeout(filterTimer); filterTimer = null; }
+});
 </script>
 
 <template>

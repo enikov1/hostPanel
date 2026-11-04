@@ -552,11 +552,6 @@ onMounted(() => { load(); updCheck(true); });
                 <button class="btn danger" style="margin-top:10px" @click="serverRebootDlg()"><UiIcon name="refresh" :size="15" /> Перезагрузить сервер</button>
               </div>
               <div class="card">
-                <div class="card-h"><span class="card-t">Перезагрузка сервера</span></div>
-                <div style="font-size:13px;line-height:1.6;color:var(--muted)">Полная перезагрузка сервера: панель и сайты будут недоступны 1–2 минуты.</div>
-                <button class="btn danger" style="margin-top:10px" @click="serverRebootDlg()"><UiIcon name="refresh" :size="15" /> Перезагрузить сервер</button>
-              </div>
-              <div class="card">
                 <div class="card-h"><span class="card-t">Как это работает</span></div>
                 <div style="font-size:13px;line-height:1.7;color:var(--muted)">
                   Рабочий режим: панель запускается от root (обычно как systemd-служба hostpanel) и управляет nginx, Apache, PHP-FPM, systemd, certbot и MySQL напрямую. Все изменения конфигов валидируются (nginx -t и т.п.) и откатываются при ошибке, каждая операция пишется в журнал аудита.<br><br>
