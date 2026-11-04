@@ -1,15 +1,25 @@
-# HostPanel 2.0 — панель управления хостингом для Linux
+# HostPanel — панель управления хостингом для Linux
 
-Структурированный проект на чистом Python (только стандартная библиотека,
-Python 3.8+), устанавливается одной командой, веб-интерфейс полностью на
-русском языке, тёмная и светлая темы.
+Репозиторий: https://github.com/enikov1/hostPanel
+
+Бэкенд — чистый Python (только стандартная библиотека), фронтенд —
+Vue 3 + Vite + vue-router (TypeScript), сборка лежит готовой в `panel/web`
+(для установки node не нужен). Веб-интерфейс полностью на русском,
+тёмная и светлая темы, реальные URL разделов (`/sites/`, `/databases/`…).
 
 ## Установка одной командой
 
 На чистом Debian/Ubuntu (нужен только python3, он уже есть в системе):
 
 ```bash
-sudo bash install.sh
+curl -fsSL https://raw.githubusercontent.com/enikov1/hostPanel/main/install.sh -o install.sh && sudo bash install.sh
+```
+
+Установщик сам скачает репозиторий с GitHub, если рядом с ним нет `panel/`.
+Альтернатива через git:
+
+```bash
+git clone https://github.com/enikov1/hostPanel.git && sudo bash hostPanel/install.sh
 ```
 
 Что делает установщик: ставит стек служб (nginx, Apache как backend на :8081, PHP 8.3-FPM с модулями, MariaDB, certbot, Node.js + npm, Redis, Memcached, fail2ban), настраивает их, копирует пакет в `/opt/hostpanel/panel`, создаёт
@@ -21,6 +31,16 @@ systemd-службу `hostpanel` (порт 8080, автозапуск), запу
 логи: `journalctl -u hostpanel -f`.
 
 Удаление: `sudo bash uninstall.sh` (файлы сайтов и бэкапы не трогаются).
+
+## Обновление прямо из панели
+
+В «Настройках» есть карточка «Обновления панели»: кнопка «Проверить обновления»
+сравнивает установленную версию с версией в репозитории на GitHub; если вышла
+новая — кнопка «Обновить до vX.Y.Z» скачивает репозиторий, сохраняет копию
+текущей панели в `/opt/hostpanel/panel.bak-<дата>`, заменяет файлы и
+перезапускает службу автоматически. Данные и настройки (`/opt/hostpanel/`,
+сайты, базы) не затрагиваются. Индикатор «⬆ доступна vX.Y.Z» также появляется
+в подвале сайдбара. Данные сайтов не трогаются.
 
 ## Консольный клиент hcp
 
@@ -92,15 +112,17 @@ hostpanel/
     │   ├── ssl.py        # certbot / openssl
     │   └── nodejs.py     # systemd-юниты Node.js
     ├── web/              # собранный фронтенд (Vue SPA): index.html + assets/
-    └── web-src/          # исходники фронтенда: Vue 3 + Vite + vue-router
-        ├── src/          # views/ (разделы), components/ (кит), lib/, api/
-        └── dist/         # сборка (npm run build) -> panel/web
+    └── core/panelupdate.py  # самообновление с GitHub
+web-src/                  # исходники фронтенда (Vue 3 + Vite + vue-router)
+    ├── src/              # views/ (разделы), components/ (кит), lib/, api/
+    └── dist/             # сборка (npm run build) -> panel/web
 
 Фронтенд — Vue 3 SPA с реальными URL (/sites/, /sites/<id>/, /databases/…,
-history mode, без #решётки). Сборка: cd panel/web-src && npm install &&
-npm run build — готовые файлы кладутся в panel/web. Сервер отдаёт index.html
-на любой «страничный» путь (SPA-fallback в server.py) и /assets/* с долгим
-кешем (хеш в имени файла).
+history mode, без #решётки). Сборка: cd web-src && npm install &&
+npm run build, затем скопировать dist в panel/web (или bash
+build-production.sh — соберёт всё и упакует production/hostpanel-<версия>.tar.gz).
+Сервер отдаёт index.html на любой «страничный» путь (SPA-fallback в
+server.py) и /assets/* с долгим кешем (хеш в имени файла).
 ```
 
 ## Запуск без установки (демо)

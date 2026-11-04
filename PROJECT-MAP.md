@@ -1,4 +1,30 @@
 
+## 23. Итерация 2026-11-04 (ночь 2): GitHub, установка одной командой, самообновление
+
+- **Репозиторий**: github.com/enikov1/hostPanel (main). В репо: panel/ (код +
+  готовая сборка web/ — node для установки не нужен), web-src/ (исходники
+  Vue), install.sh, uninstall.sh, hcp, VERSION, build-production.sh.
+  Секреты и машинные файлы (deploy.sh, реквизиты, hostpanel-data/,
+  production/, server-pull/) — в .gitignore. .gitattributes фиксирует LF
+  для .sh/.py.
+- **Установка одной командой** (как у HestiaCP): install.sh при отсутствии
+  рядом panel/ сам скачивает архив репозитория с GitHub (curl/wget) и
+  продолжает установку. `curl -o install.sh ... && sudo bash install.sh`
+  или `git clone ... && sudo bash hostPanel/install.sh`.
+- **Самообновление из панели**: core/panelupdate.py + API
+  GET /api/panel/update (текущая vs версия на GitHub по raw VERSION,
+  сравнение числовых сегментов) и POST /api/panel/update/run — фоновая
+  задача: скачать main.tar.gz, проверить состав, бэкап в
+  /opt/hostpanel/panel.bak-<метка> (хранятся последние 3), замена файлов,
+  рестарт через threading.Timer(2.0) — чтобы успеть отдать ответ. В демо
+  запрещено. UI: карточка «Обновления панели» в Настройках (проверка,
+  кнопка обновления, живой лог) + индикатор «⬆ доступна vX.Y.Z» в подвале
+  сайдбара.
+- **Проверено живьём**: панель 2.16.0 на сервере обнаружила 2.16.1 в GitHub,
+  обновилась сама и перезапустилась (panel.bak-... создан).
+- build-production.sh: источник кода — panel/ из репо (не server-pull),
+  фронтенд — web-src/.
+
 ## 22. Итерация 2026-11-04 (ночь): сборка production-дистрибутива
 
 - `build-production.sh` — одна команда собирает `C:\hostpanel\production`:
