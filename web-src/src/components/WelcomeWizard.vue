@@ -1,6 +1,8 @@
 <script setup lang="ts">
-/* Welcome-мастер первого запуска: 2FA + переход к созданию сайта. */
-import { ref, onMounted } from 'vue';
+/* Welcome-мастер первого запуска: 2FA + переход к созданию сайта.
+   Данные 2FA грузятся ТОЛЬКО при открытии мастера (после входа) —
+   иначе до логина в консоли сыплются 401. */
+import { ref, watch } from 'vue';
 import { api } from '../api/client';
 import { toast, toastErr } from '../lib/toast';
 import { session } from '../stores';
@@ -14,7 +16,9 @@ const qrSvg = ref('');
 const code = ref('');
 const busy = ref(false);
 
-onMounted(async () => {
+watch(() => props.open, (v) => { if (v) loadTotp(); });
+
+async function loadTotp(): Promise<void> {
   let done2fa = false;
   try { done2fa = (await api('/api/totp/status')).enabled; } catch (e) { /* noop */ }
   if (!done2fa) {
@@ -28,7 +32,7 @@ onMounted(async () => {
       .then((q: any) => { if (q.svg) qrSvg.value = q.svg; })
       .catch(() => { /* без QR остаётся ручной ввод ключа */ });
   }
-});
+}
 
 async function enable2fa(): Promise<void> {
   const t = tfa.value;
