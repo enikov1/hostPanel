@@ -208,7 +208,7 @@ onMounted(load);
       </div>
 
       <template v-for="g in groupsOf(entries)" :key="g">
-        <label style="margin-top:14px">{{ g }}</label>
+        <div class="g-title">{{ g }}</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px">
           <div v-for="e in entries.filter((x: any) => (x.group || 'Прочее') === g)" :key="e.id"
                class="card swset-tile" :id="'swset-' + e.id"

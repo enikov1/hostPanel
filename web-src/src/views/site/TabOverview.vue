@@ -95,7 +95,7 @@ function auditPillText(st: string): string {
     <div v-if="siteState.site.maintenance" class="notice warn" style="margin-top:10px">
       Сайт сейчас отдаёт HTTP 503 и страницу «ведутся работы».</div>
 
-    <label style="margin-top:16px">Производительность (настройки nginx)</label>
+    <div class="g-title">Производительность (настройки nginx)</div>
     <label class="check">
       <input v-model="siteState.f_perf.gzip" type="checkbox">
       Сжатие ответов (gzip) — страницы отдаются быстрее</label>
@@ -112,7 +112,7 @@ function auditPillText(st: string): string {
     </template>
     <div class="faint" style="font-size:11.5px;margin-top:4px">Применится после «Сохранить». Конфиг проверяется nginx -t — при ошибке панель откатит изменения сама.</div>
 
-    <label style="margin-top:16px">Библиотека сниппетов (nginx)</label>
+    <div class="g-title">Библиотека сниппетов (nginx)</div>
     <label class="check">
       <input v-model="siteState.f_snippets.www_redirect" type="checkbox"> Редирект www → без www</label>
     <div class="field" style="margin:6px 0 0">

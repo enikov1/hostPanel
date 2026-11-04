@@ -1,4 +1,4 @@
-import{e as oe}from"./format-BO8CjHqV.js";import{d as le,B as ue,o as ce,q as de,c as pe,f as w,t as ge,s as j,i as H}from"./index-DPKqWi66.js";var Z=typeof globalThis<"u"?globalThis:typeof window<"u"?window:typeof global<"u"?global:typeof self<"u"?self:{};function fe(d){return d&&d.__esModule&&Object.prototype.hasOwnProperty.call(d,"default")?d.default:d}var q={exports:{}},Q;function he(){return Q||(Q=1,(function(d){var T=typeof window<"u"?window:typeof WorkerGlobalScope<"u"&&self instanceof WorkerGlobalScope?self:{};/**
+import{e as oe}from"./format-BO8CjHqV.js";import{d as le,B as ue,o as ce,q as de,c as pe,f as w,t as ge,s as j,i as H}from"./index-C060hc1q.js";var Z=typeof globalThis<"u"?globalThis:typeof window<"u"?window:typeof global<"u"?global:typeof self<"u"?self:{};function fe(d){return d&&d.__esModule&&Object.prototype.hasOwnProperty.call(d,"default")?d.default:d}var q={exports:{}},Q;function he(){return Q||(Q=1,(function(d){var T=typeof window<"u"?window:typeof WorkerGlobalScope<"u"&&self instanceof WorkerGlobalScope?self:{};/**
  * Prism: Lightweight, robust, elegant syntax highlighting
  *
  * @license MIT <https://opensource.org/licenses/MIT>

@@ -116,7 +116,7 @@ async function secSave(): Promise<void> {
     <template v-else>
       <div class="notice info">Правила применяются к сайту на уровне nginx: гео-страны (GeoIP2), списки IP, блокировка ботов и сканеров, базовый WAF (SQLi/XSS/скрытые файлы), ограничение частоты запросов.</div>
 
-      <label>Доступ по странам</label>
+      <div class="g-title no-line">Доступ по странам</div>
       <div class="row">
         <select v-model="sec.geo_mode">
           <option value="off">— все страны —</option>
@@ -145,7 +145,7 @@ async function secSave(): Promise<void> {
         <button class="btn sm" style="margin:4px 0 0 8px" @click="secGeoInstall()">Установить GeoIP2</button>
       </div>
 
-      <label style="margin-top:14px">Запрещённые IP (чёрный список)</label>
+      <div class="g-title">Запрещённые IP (чёрный список)</div>
       <div class="row">
         <input v-model="newDeny" type="text" placeholder="например, 45.155.205.11" style="flex:1"
                @keyup.enter="secAddIp('deny')">
@@ -161,7 +161,7 @@ async function secSave(): Promise<void> {
         <span v-else class="faint" style="font-size:12.5px">пусто</span>
       </div>
 
-      <label style="margin-top:14px">Разрешённые IP (белый список; при непустом — только они)</label>
+      <div class="g-title">Разрешённые IP (белый список; при непустом — только они)</div>
       <div class="row">
         <input v-model="newAllow" type="text" placeholder="например, 10.0.0.5" style="flex:1"
                @keyup.enter="secAddIp('allow')">
@@ -184,7 +184,7 @@ async function secSave(): Promise<void> {
           <input v-model="sec.waf" type="checkbox"> Включить WAF (SQLi / XSS / скрытые файлы)</label>
       </div>
 
-      <label style="margin-top:14px">Ограничение частоты запросов (защита от DDoS)</label>
+      <div class="g-title">Ограничение частоты запросов (защита от DDoS)</div>
       <div class="row">
         <div class="field" style="flex:1">
           <label style="margin-top:0">Запросов/сек (0 = выкл.)</label>

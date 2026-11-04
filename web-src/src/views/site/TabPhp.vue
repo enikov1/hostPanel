@@ -41,7 +41,7 @@ async function stFpmReco(): Promise<void> {
         <option v-for="v in siteState.phpVersions" :key="v" :value="v">PHP {{ v }}</option>
       </select>
     </div>
-    <label>Модули PHP (для версии {{ siteState.f_php || '—' }})</label>
+    <div class="g-title">Модули PHP (для версии {{ siteState.f_php || '—' }})</div>
     <div style="max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:10px">
       <label v-for="m in siteState.modAvail" :key="m" class="check" style="margin:4px 0">
         <input v-model="siteState.f_php_modules" type="checkbox" :value="m"> {{ m }}
@@ -53,7 +53,7 @@ async function stFpmReco(): Promise<void> {
         <UiIcon name="pkg" :size="14" /> Установить модули (apt)</button>
     </div>
 
-    <label style="margin-top:12px">Настройки пула PHP-FPM</label>
+    <div class="g-title">Настройки пула PHP-FPM</div>
     <div class="row">
       <div class="field" style="flex:1">
         <label>Режим</label>
