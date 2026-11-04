@@ -103,12 +103,27 @@ function sslPillText(s: Site): string {
 }
 
 /* ---------- вкл/выкл, удаление ---------- */
-async function toggleSite(id: number): Promise<void> {
-  try {
-    const r = await api('/api/sites/toggle', { method: 'POST', body: { id } });
-    toast(r.message);
-    load();
-  } catch (e) { toastErr(e); }
+function findSite(id: number): Site | undefined {
+  const all = [...sites.value, ...sites.value.flatMap((x) => children(x))];
+  return all.find((x) => x.id === id);
+}
+
+/** Остановить/запустить сайт — с подтверждением. */
+function toggleSite(id: number): void {
+  const s = findSite(id);
+  if (!s) return;
+  const stop = !!s.enabled;
+  const what = stop ? 'Остановить сайт' : 'Запустить сайт';
+  const detail = stop
+    ? 'Сайт ' + s.domain + ' перестанет отвечать на запросы: посетители увидят заглушку «Сайт отключён». Файлы и настройки сохранятся.'
+    : 'Сайт ' + s.domain + ' начнёт обслуживать запросы.';
+  confirmDlg(what, detail + ' Продолжить?', async () => {
+    try {
+      const r = await api('/api/sites/toggle', { method: 'POST', body: { id } });
+      toast(r.message);
+      load();
+    } catch (e) { toastErr(e); }
+  }, false);
 }
 
 function delSite(id: number, domain: string): void {
@@ -315,8 +330,11 @@ onBeforeUnmount(() => { unmounted = true; });
                               :title="pmaOf(s.domain) ? 'phpMyAdmin установлен — открыть в новом окне' : 'Установить phpMyAdmin в папку /pma этого сайта'"
                               @click="pmaSiteDlg(s.domain)">
                         <UiIcon :name="pmaOf(s.domain) ? 'ext' : 'down'" :size="14" /> phpMyAdmin</button>
-                      <button class="btn sm icon" title="Вкл/выкл сайт" @click="toggleSite(s.id)">
-                        <UiIcon name="play" :size="14" /></button>
+                      <button class="btn sm icon"
+                              :class="{ warn: s.enabled }"
+                              :title="s.enabled ? 'Остановить сайт' : 'Запустить сайт'"
+                              @click="toggleSite(s.id)">
+                        <UiIcon :name="s.enabled ? 'pause' : 'play'" :size="14" /></button>
                       <button class="btn sm icon" title="Поддомен" @click="wizardSubdomain(s.id, s.domain)">
                         <UiIcon name="plus" :size="14" /></button>
                       <button class="btn sm icon danger" title="Удалить" @click="delSite(s.id, s.domain)">
@@ -346,6 +364,10 @@ onBeforeUnmount(() => { unmounted = true; });
                     <div class="actions-cell">
                       <router-link class="btn sm" :to="'/sites/' + ch.id" title="Настройки сайта">
                         <UiIcon name="gear" :size="14" /></router-link>
+                      <button class="btn sm icon"
+                              :title="ch.enabled ? 'Остановить сайт' : 'Запустить сайт'"
+                              @click="toggleSite(ch.id)">
+                        <UiIcon :name="ch.enabled ? 'pause' : 'play'" :size="14" /></button>
                       <button v-if="ch.php" class="btn sm"
                               :title="pmaOf(ch.domain) ? 'phpMyAdmin установлен — открыть в новом окне' : 'Установить phpMyAdmin в папку /pma этого сайта'"
                               @click="pmaSiteDlg(ch.domain)">

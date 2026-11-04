@@ -531,3 +531,5 @@ font-size:13px;line-height:1.55}
 .uirange:hover .uirange-thumb{box-shadow:0 0 0 5px var(--sel)}
 .uirange-val{min-width:34px;text-align:right;font-size:13px}
 .uirange.dis{opacity:.55;cursor:not-allowed}
+.btn.warn{background:var(--warn-s);color:var(--warn);border-color:var(--warn-br)}
+.btn.warn:hover{filter:brightness(1.05)}
