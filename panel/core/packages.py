@@ -49,7 +49,7 @@ def php_versions():
     for v in list(versions):
         binname = "php" + v if have("php" + v) else "php"
         code, out, _ = run([binname, "-m"], timeout=20)
-        versions[v] = [m.strip() for m in out.splitlines() if m.strip()] \
+        versions[v] = [m.strip() for m in out.splitlines() if m.strip() and not m.strip().startswith("[")] \
             if code == 0 else []
     return versions
 
