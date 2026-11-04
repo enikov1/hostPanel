@@ -1,5 +1,8 @@
 <script setup lang="ts">
-/* ============ Вкладка «Фильтры» (безопасность) карточки сайта ============ */
+/* ============ Вкладка «Фильтры» (безопасность) карточки сайта ============
+   Каждая группа — отдельная карточка с человеческим описанием:
+   гео-страны, чёрный/белый список IP, автоблокировка ботов/WAF,
+   ограничение частоты запросов. */
 import { onMounted, reactive, ref } from 'vue';
 import { api } from '../../api/client';
 import { toast, toastErr } from '../../lib/toast';
@@ -114,91 +117,163 @@ async function secSave(): Promise<void> {
     <div v-if="loading" class="empty">Загрузка…</div>
     <div v-else-if="err" class="empty">{{ err }}</div>
     <template v-else>
-      <div class="notice info">Правила применяются к сайту на уровне nginx: гео-страны (GeoIP2), списки IP, блокировка ботов и сканеров, базовый WAF (SQLi/XSS/скрытые файлы), ограничение частоты запросов.</div>
+      <div class="notice info" style="margin-bottom:12px">
+        Правила защиты работают на уровне nginx и применяются к этому сайту
+        кнопкой «Применить правила» ниже. Кнопка «Сохранить» в шапке к ним
+        не относится.
+      </div>
 
-      <div class="g-title no-line">Доступ по странам</div>
-      <div class="row">
-        <select v-model="sec.geo_mode">
-          <option value="off">— все страны —</option>
-          <option value="allow">разрешить только выбранные</option>
-          <option value="deny">запретить выбранные</option>
-        </select>
-        <div style="flex:1;min-width:200px">
-          <select @change="secAddCountry">
-            <option value="">+ добавить страну…</option>
-            <option v-for="c in countryOptions" :key="c" :value="c">{{ c }} — {{ countries[c] }}</option>
-          </select>
+      <!-- 1. Гео-доступ -->
+      <div class="card" style="margin:0 0 12px">
+        <div class="card-h"><span class="card-t">Доступ по странам</span>
+          <span class="pill gray" style="margin-left:auto">
+            {{ sec.geo_mode === 'off' ? 'выключено' :
+               sec.geo_mode === 'allow' ? 'только выбранные' : 'кроме выбранных' }}</span>
         </div>
-      </div>
-      <div class="chips" style="margin-top:8px">
-        <template v-if="sec.geo_countries.length">
-          <span v-for="c in sec.geo_countries" :key="c" class="chip">
-            {{ c }} · {{ countries[c] || '' }}
-            <button type="button" @click="secRemoveCountry(c)">×</button>
-          </span>
-        </template>
-        <span v-else class="faint" style="font-size:12.5px">страны не выбраны</span>
-      </div>
-      <div v-if="!geoAvailable" class="notice warn" style="margin-top:10px">
-        Модуль nginx geoip2 или база стран GeoLite2 не установлены. Установите в разделе «Установка ПО»
-        (группа «SSL и безопасность») или прямо здесь:
-        <button class="btn sm" style="margin:4px 0 0 8px" @click="secGeoInstall()">Установить GeoIP2</button>
-      </div>
-
-      <div class="g-title">Запрещённые IP (чёрный список)</div>
-      <div class="row">
-        <input v-model="newDeny" type="text" placeholder="например, 45.155.205.11" style="flex:1"
-               @keyup.enter="secAddIp('deny')">
-        <button class="btn sm" @click="secAddIp('deny')">Добавить</button>
-      </div>
-      <div class="chips" style="margin-top:8px">
-        <template v-if="sec.ip_deny.length">
-          <span v-for="ip in sec.ip_deny" :key="ip" class="chip mono">
-            {{ ip }}
-            <button type="button" @click="secRemoveIp('deny', ip)">×</button>
-          </span>
-        </template>
-        <span v-else class="faint" style="font-size:12.5px">пусто</span>
-      </div>
-
-      <div class="g-title">Разрешённые IP (белый список; при непустом — только они)</div>
-      <div class="row">
-        <input v-model="newAllow" type="text" placeholder="например, 10.0.0.5" style="flex:1"
-               @keyup.enter="secAddIp('allow')">
-        <button class="btn sm" @click="secAddIp('allow')">Добавить</button>
-      </div>
-      <div class="chips" style="margin-top:8px">
-        <template v-if="sec.ip_allow.length">
-          <span v-for="ip in sec.ip_allow" :key="ip" class="chip mono">
-            {{ ip }}
-            <button type="button" @click="secRemoveIp('allow', ip)">×</button>
-          </span>
-        </template>
-        <span v-else class="faint" style="font-size:12.5px">пусто</span>
-      </div>
-
-      <div class="row" style="margin-top:14px">
-        <label class="check" style="margin:0">
-          <input v-model="sec.block_bots" type="checkbox"> Блокировать ботов и сканеры</label>
-        <label class="check" style="margin:0">
-          <input v-model="sec.waf" type="checkbox"> Включить WAF (SQLi / XSS / скрытые файлы)</label>
-      </div>
-
-      <div class="g-title">Ограничение частоты запросов (защита от DDoS)</div>
-      <div class="row">
-        <div class="field" style="flex:1">
-          <label style="margin-top:0">Запросов/сек (0 = выкл.)</label>
-          <input v-model.number="sec.rate_limit" type="number">
+        <div class="faint" style="font-size:12px;margin-bottom:10px">
+          Можно пустить на сайт посетителей только из выбранных стран — или,
+          наоборот, закрыть доступ из нежелательных. Например: сайт только для
+          России — режим «разрешить только выбранные» + RU.
         </div>
-        <div class="field" style="flex:1">
-          <label style="margin-top:0">Всплеск (burst)</label>
-          <input v-model.number="sec.rate_burst" type="number">
+        <div class="row">
+          <div class="field" style="flex:1;margin:0">
+            <label>Режим</label>
+            <select v-model="sec.geo_mode">
+              <option value="off">— все страны —</option>
+              <option value="allow">разрешить только выбранные</option>
+              <option value="deny">запретить выбранные</option>
+            </select>
+          </div>
+          <div class="field" style="flex:1;margin:0">
+            <label>Добавить страну</label>
+            <select :disabled="sec.geo_mode === 'off'" @change="secAddCountry">
+              <option value="">{{ sec.geo_mode === 'off' ? 'сначала выберите режим' : '+ выбрать страну…' }}</option>
+              <option v-for="c in countryOptions" :key="c" :value="c">{{ c }} — {{ countries[c] }}</option>
+            </select>
+          </div>
+        </div>
+        <div class="chips" style="margin-top:10px">
+          <template v-if="sec.geo_countries.length">
+            <span v-for="c in sec.geo_countries" :key="c" class="chip">
+              {{ c }} · {{ countries[c] || '' }}
+              <button type="button" @click="secRemoveCountry(c)">×</button>
+            </span>
+          </template>
+          <span v-else class="faint" style="font-size:12.5px">страны не выбраны</span>
+        </div>
+        <div v-if="!geoAvailable" class="notice warn" style="margin-top:10px">
+          Модуль nginx geoip2 или база стран GeoLite2 не установлены —
+          без них фильтр по странам работать не будет. Установите в разделе
+          «Установка ПО» (группа «SSL и безопасность») или прямо здесь:
+          <button class="btn sm" style="margin:4px 0 0 8px" @click="secGeoInstall()">Установить GeoIP2</button>
         </div>
       </div>
 
-      <div class="row" style="margin-top:14px">
+      <!-- 2/3. Списки IP -->
+      <div class="split" style="margin-bottom:12px">
+        <div class="card" style="margin:0">
+          <div class="card-h"><span class="card-t">Чёрный список IP</span>
+            <span class="pill" :class="sec.ip_deny.length ? 'err' : 'gray'" style="margin-left:auto">
+              {{ sec.ip_deny.length ? 'заблокировано: ' + sec.ip_deny.length : 'пусто' }}</span>
+          </div>
+          <div class="faint" style="font-size:12px;margin-bottom:10px">
+            Эти адреса получат ошибку 403 при любом обращении. Вносите спамеров,
+            ботов-парсеров и взломщиков, которых видно во вкладке «Статистика».
+          </div>
+          <div class="row">
+            <input v-model="newDeny" type="text" placeholder="например, 45.155.205.11" style="flex:1"
+                   @keyup.enter="secAddIp('deny')">
+            <button class="btn sm" @click="secAddIp('deny')">Добавить</button>
+          </div>
+          <div class="chips" style="margin-top:10px">
+            <template v-if="sec.ip_deny.length">
+              <span v-for="ip in sec.ip_deny" :key="ip" class="chip mono">
+                {{ ip }}
+                <button type="button" @click="secRemoveIp('deny', ip)">×</button>
+              </span>
+            </template>
+            <span v-else class="faint" style="font-size:12.5px">пусто</span>
+          </div>
+        </div>
+
+        <div class="card" style="margin:0">
+          <div class="card-h"><span class="card-t">Белый список IP</span>
+            <span class="pill" :class="sec.ip_allow.length ? 'ok' : 'gray'" style="margin-left:auto">
+              {{ sec.ip_allow.length ? 'только они: ' + sec.ip_allow.length : 'пусто' }}</span>
+          </div>
+          <div class="faint" style="font-size:12px;margin-bottom:10px">
+            Если список непуст — доступ открыт ТОЛЬКО с этих адресов, всем
+            остальным 403. Удобно, пока сайт в разработке, или чтобы закрыть
+            админку от посторонних.
+          </div>
+          <div class="row">
+            <input v-model="newAllow" type="text" placeholder="например, 10.0.0.5" style="flex:1"
+                   @keyup.enter="secAddIp('allow')">
+            <button class="btn sm" @click="secAddIp('allow')">Добавить</button>
+          </div>
+          <div class="chips" style="margin-top:10px">
+            <template v-if="sec.ip_allow.length">
+              <span v-for="ip in sec.ip_allow" :key="ip" class="chip mono">
+                {{ ip }}
+                <button type="button" @click="secRemoveIp('allow', ip)">×</button>
+              </span>
+            </template>
+            <span v-else class="faint" style="font-size:12.5px">пусто</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Автоматическая защита -->
+      <div class="card" style="margin:0 0 12px">
+        <div class="card-h"><span class="card-t">Автоматическая защита</span></div>
+        <label class="check" style="display:flex;margin:8px 0">
+          <input v-model="sec.block_bots" type="checkbox">
+          <span style="margin-left:2px"><b>Блокировать ботов и сканеров</b>
+            <span class="faint" style="display:block;font-size:12px;margin-top:2px">
+              Известные боты, утилиты перебора паролей и сканеры уязвимостей
+              получат 403 по их User-Agent. Обычные посетители не пострадают.</span></span>
+        </label>
+        <label class="check" style="display:flex;margin:8px 0">
+          <input v-model="sec.waf" type="checkbox">
+          <span style="margin-left:2px"><b>Включить WAF</b>
+            <span class="faint" style="display:block;font-size:12px;margin-top:2px">
+              Блокирует типовые атаки: SQL-инъекции, XSS-скрипты в адресах,
+              попытки скачать скрытые файлы (.env, .git и т.п.).</span></span>
+        </label>
+      </div>
+
+      <!-- 5. Ограничение частоты -->
+      <div class="card" style="margin:0 0 12px">
+        <div class="card-h"><span class="card-t">Ограничение частоты запросов</span>
+          <span class="pill" :class="sec.rate_limit ? 'warn' : 'gray'" style="margin-left:auto">
+            {{ sec.rate_limit ? sec.rate_limit + ' зап./сек' : 'выключено' }}</span>
+        </div>
+        <div class="faint" style="font-size:12px;margin-bottom:10px">
+          Защита от DDoS и брутфорса: если с одного адреса идёт больше запросов,
+          чем разрешено, лишние получают ошибку 429. Обычному посетителю хватает
+          5–20 запросов в секунду.
+        </div>
+        <div class="row">
+          <div class="field" style="flex:1;margin:0">
+            <label>Запросов в секунду (0 — выключено)</label>
+            <input v-model.number="sec.rate_limit" type="number">
+          </div>
+          <div class="field" style="flex:1;margin:0">
+            <label>Допуск всплесков (burst)</label>
+            <input v-model.number="sec.rate_burst" type="number">
+            <div class="faint" style="font-size:11.5px;margin-top:4px">
+              На сколько запросов разрешено «превысить» лимит коротким всплеском
+              (страница грузит 15 файлов разом — и это нормально). Обычно 20–50.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:4px;align-items:center">
         <button class="btn primary" @click="secSave()">
-          <UiIcon name="check" :size="14" /> Применить фильтры</button>
+          <UiIcon name="check" :size="14" /> Применить правила</button>
+        <span class="faint" style="font-size:12px">
+          nginx перезагрузится автоматически; при ошибке конфиг откатится сам.</span>
       </div>
     </template>
   </div>
