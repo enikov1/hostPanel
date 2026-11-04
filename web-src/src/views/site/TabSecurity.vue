@@ -14,6 +14,7 @@ import UiCheckbox from '../../components/ui/UiCheckbox.vue';
 import { siteState } from './siteShared';
 
 const loading = ref(true);
+const secTab = ref('geo');
 const err = ref('');
 const geoAvailable = ref(true);
 const countries = ref<Record<string, string>>({});
@@ -374,7 +375,22 @@ async function secSave(): Promise<void> {
         не относится.
       </div>
 
-      <!-- 1. Гео-доступ: два независимых списка стран -->
+      <!-- под-табы WAF -->
+      <div class="tabs" style="margin-bottom:12px">
+        <button class="tab" :class="{ active: secTab === 'geo' }"
+                @click="secTab = 'geo'">Страны</button>
+        <button class="tab" :class="{ active: secTab === 'ip' }"
+                @click="secTab = 'ip'">IP-адреса</button>
+        <button class="tab" :class="{ active: secTab === 'bots' }"
+                @click="secTab = 'bots'">Боты и User-Agent</button>
+        <button class="tab" :class="{ active: secTab === 'ref' }"
+                @click="secTab = 'ref'">Рефереры</button>
+        <button class="tab" :class="{ active: secTab === 'protect' }"
+                @click="secTab = 'protect'">Защита и лимиты</button>
+        <button class="tab" :class="{ active: secTab === 'analysis' }"
+                @click="secTab = 'analysis'">Из логов</button>
+      </div>
+      <div v-show="secTab === 'geo'">      <!-- 1. Гео-доступ: два независимых списка стран -->
       <div class="card" style="margin:0 0 12px">
         <div class="card-h"><span class="card-t">Доступ по странам</span>
           <span class="pill" :class="geoActive ? 'ok' : 'gray'" style="margin-left:auto">
@@ -430,7 +446,8 @@ async function secSave(): Promise<void> {
         </div>
       </div>
 
-      <!-- 2/3. Списки IP -->
+    </div>
+      <div v-show="secTab === 'ip'">      <!-- 2/3. Списки IP -->
       <div class="split" style="margin-bottom:12px">
         <div class="card" style="margin:0">
           <div class="card-h"><span class="card-t">Чёрный список IP</span>
@@ -484,7 +501,8 @@ async function secSave(): Promise<void> {
         </div>
       </div>
 
-      <!-- 3. Боты и User-Agent -->
+    </div>
+      <div v-show="secTab === 'bots'">      <!-- 3. Боты и User-Agent -->
       <div class="card" style="margin:0 0 12px">
         <div class="card-h"><span class="card-t">Боты и User-Agent</span>
           <span class="pill" :class="sec.ua_categories.length || sec.ua_rules.length ? 'warn' : 'gray'"
@@ -550,7 +568,8 @@ async function secSave(): Promise<void> {
         </UiCheckbox>
       </div>
 
-      <!-- 4. Источники (Referer) -->
+    </div>
+      <div v-show="secTab === 'ref'">      <!-- 4. Источники (Referer) -->
       <div class="card" style="margin:0 0 12px">
         <div class="card-h"><span class="card-t">Источники (Referer)</span>
           <span class="pill"
@@ -609,7 +628,8 @@ async function secSave(): Promise<void> {
         </UiCheckbox>
       </div>
 
-      <!-- 5. Анализ из логов -->
+    </div>
+      <div v-show="secTab === 'analysis'">      <!-- 5. Анализ из логов -->
       <div class="card" style="margin:0 0 12px">
         <div class="card-h">
           <span class="card-t">Анализ из логов</span>
@@ -656,7 +676,8 @@ async function secSave(): Promise<void> {
         </template>
       </div>
 
-      <!-- 6. Автоматическая защита -->
+    </div>
+      <div v-show="secTab === 'protect'">      <!-- 6. Автоматическая защита -->
       <div class="card" style="margin:0 0 12px">
         <div class="card-h"><span class="card-t">Автоматическая защита</span></div>
         <UiCheckbox v-model="sec.block_bots" style="margin:8px 0">
@@ -700,6 +721,7 @@ async function secSave(): Promise<void> {
         </div>
       </div>
 
+    </div>
       <!-- 8. Применить -->
       <div class="row" style="margin-top:4px;align-items:center">
         <button class="btn primary" @click="secSave()">
