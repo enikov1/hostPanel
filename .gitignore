@@ -26,3 +26,4 @@ __pycache__/
 # --- служебное ---
 .DS_Store
 Thumbs.db
+hostpanel-data/

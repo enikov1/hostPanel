@@ -20,7 +20,7 @@ cd "$(dirname "$0")"
 
 ROOT="$(pwd)"
 VUE="$ROOT/web-src"
-SRC_PANEL="$ROOT/server-pull/panel"
+SRC_PANEL="$ROOT/panel"
 PROD="$ROOT/production"
 
 # ---------- версия ----------
