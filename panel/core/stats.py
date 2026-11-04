@@ -18,12 +18,13 @@ ACCESS_RE = re.compile(
 def _parse_access_lines(lines, filtr=None):
     """Разбирает строки combined-лога -> агрегаты (с необязательным фильтром)."""
     st = {"requests": 0, "bytes": 0, "codes": {}, "urls": {}, "ips": {},
-          "daily": {}, "bots": 0}
+          "daily": {}, "bots": 0, "methods": {}, "refs": {}, "hours": {},
+          "uas": {}}
     for line in lines:
         m = ACCESS_RE.match(line)
         if not m:
             continue
-        ip, tstr, _meth, url, code, size, _ref, ua = m.groups()
+        ip, tstr, meth, url, code, size, ref, ua = m.groups()
         if filtr and not _match_filter(filtr, ip, code, url, tstr, ua):
             continue
         st["requests"] += 1
@@ -31,16 +32,37 @@ def _parse_access_lines(lines, filtr=None):
         st["codes"][code] = st["codes"].get(code, 0) + 1
         st["urls"][url] = st["urls"].get(url, 0) + 1
         st["ips"][ip] = st["ips"].get(ip, 0) + 1
-        if re.search(r"bot|crawler|spider|slurp", ua, re.I):
+        is_bot = bool(re.search(r"bot|crawler|spider|slurp", ua, re.I))
+        if is_bot:
             st["bots"] += 1
+        if meth:
+            st["methods"][meth] = st["methods"].get(meth, 0) + 1
+        if ref and ref != "-":
+            # схема и www не интересны: остаётся домен-источник
+            host = re.sub(r"^https?://(www\.)?", "", ref, flags=re.I)
+            host = host.split("/")[0].split("?")[0]
+            if host:
+                st["refs"][host] = st["refs"].get(host, 0) + 1
         try:
-            day = dt.datetime.strptime(tstr.split(":")[0],
-                                       "%d/%b/%Y").strftime("%Y-%m-%d")
+            ts = dt.datetime.strptime(tstr.split(" ")[0],
+                                      "%d/%b/%Y:%H:%M:%S")
+            hh = "%02d" % ts.hour
+            st["hours"][hh] = st["hours"].get(hh, 0) + 1
+            day = ts.strftime("%Y-%m-%d")
         except ValueError:
-            day = "unknown"
+            try:
+                day = dt.datetime.strptime(tstr.split(":")[0],
+                                           "%d/%b/%Y").strftime("%Y-%m-%d")
+            except ValueError:
+                day = "unknown"
+            hh = None
         d = st["daily"].setdefault(day, {"requests": 0, "bytes": 0})
         d["requests"] += 1
         d["bytes"] += int(size) if size.isdigit() else 0
+        # топ User-Agent: только семья (первый «товарный» токен)
+        ua_family = ua.split(" ")[0][:60] if ua and ua != "-" else ""
+        if ua_family:
+            st["uas"][ua_family] = st["uas"].get(ua_family, 0) + 1
     return st
 
 
@@ -76,18 +98,87 @@ def _match_filter(f, ip, code, url, tstr, ua):
 def _merge_stats(dst, src):
     for key in ("requests", "bytes", "bots"):
         dst[key] = dst.get(key, 0) + src.get(key, 0)
-    for key in ("codes", "urls", "ips", "daily"):
-        for k, v in src[key].items():
+    for key in ("codes", "urls", "ips", "daily", "methods", "refs",
+                "hours", "uas"):
+        for k, v in src.get(key, {}).items():
             if isinstance(v, dict):
-                cur = dst[key].setdefault(k, {"requests": 0, "bytes": 0})
+                cur = dst.setdefault(key, {}).setdefault(
+                    k, {"requests": 0, "bytes": 0})
                 cur["requests"] += v["requests"]
                 cur["bytes"] += v["bytes"]
             else:
-                dst[key][k] = dst[key].get(k, 0) + v
+                dst.setdefault(key, {})[k] = \
+                    dst[key].get(k, 0) + v
 
 
-def site_stats(site, days=14):
-    """Статистика сайта: инкрементальный парсинг access-лога."""
+def _empty_agg():
+    return {"requests": 0, "bytes": 0, "bots": 0, "codes": {}, "urls": {},
+            "ips": {}, "daily": {}, "methods": {}, "refs": {}, "hours": {},
+            "uas": {}}
+
+
+def _stats_payload(agg, days, filtered=False):
+    """Единый вид ответа из агрегата (+ срез по дням за период)."""
+    today = dt.date.today()
+    day_keys = [(today - dt.timedelta(days=i)).isoformat()
+                for i in range(days - 1, -1, -1)]
+    series = [{"day": d,
+               "requests": agg["daily"].get(d, {}).get("requests", 0),
+               "bytes": agg["daily"].get(d, {}).get("bytes", 0)}
+              for d in day_keys]
+    return {
+        "requests": agg["requests"],
+        "bytes": agg["bytes"],
+        "bots": agg.get("bots", 0),
+        "unique_ips": len(agg.get("ips", {})),
+        "codes": sorted(agg["codes"].items(), key=lambda x: -x[1]),
+        "top_urls": sorted(agg["urls"].items(), key=lambda x: -x[1])[:12],
+        "top_ips": sorted(agg["ips"].items(), key=lambda x: -x[1])[:10],
+        "methods": sorted(agg.get("methods", {}).items(),
+                          key=lambda x: -x[1]),
+        "top_refs": sorted(agg.get("refs", {}).items(),
+                           key=lambda x: -x[1])[:8],
+        "hours": [("%02d:00" % int(h), agg["hours"][h])
+                  for h in sorted(agg.get("hours", {}).keys())
+                  if h.isdigit()],
+        "top_uas": sorted(agg.get("uas", {}).items(),
+                          key=lambda x: -x[1])[:6],
+        "series": series,
+        "filtered": filtered,
+    }
+
+
+STATS_FILTER_VERSION = 2   # смена схемы агрегата -> пересчёт лога
+STATS_FILTER_MAX_BYTES = 20_000_000   # потолок разового парса с фильтром
+
+
+def _filtered_stats(site, days, filtr):
+    """Статистика с фильтрами: разовый парс хвоста лога (без кеша)."""
+    from .templates import site_log_paths
+    path = site_log_paths(site)["access"]
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return _stats_payload(_empty_agg(), days, filtered=True)
+    with open(path, "rb") as f:
+        if size > STATS_FILTER_MAX_BYTES:
+            f.seek(size - STATS_FILTER_MAX_BYTES)
+        data = f.read(STATS_FILTER_MAX_BYTES)
+    lines = data.decode("utf-8", "replace").splitlines()
+    if size > STATS_FILTER_MAX_BYTES and lines:
+        lines = lines[1:]
+    agg = _parse_access_lines(lines, filtr=filtr)
+    return _stats_payload(agg, days, filtered=True)
+
+
+def site_stats(site, days=14, filtr=None):
+    """Статистика сайта: инкрементальный парсинг access-лога.
+
+    filtr (code/ip/url/since/until/errors_only/bots_only) — считается
+    заново по хвосту лога без кеша; без фильтра — инкрементальный агрегат.
+    """
+    if filtr:
+        return _filtered_stats(site, days, filtr)
     from .templates import site_log_paths
     paths = site_log_paths(site)
     cache = CTX.store.data.setdefault("stats", {}).setdefault(
@@ -95,6 +186,9 @@ def site_stats(site, days=14):
     path = paths["access"]
     offset = cache.get("offset", 0)
     agg = cache.get("agg") or _empty_agg()
+    if cache.get("v") != STATS_FILTER_VERSION:
+        # старая схема агрегата — пересчитываем с нуля
+        offset, agg = 0, _empty_agg()
     try:
         size = os.path.getsize(path)
     except OSError:
@@ -114,26 +208,9 @@ def site_stats(site, days=14):
             _merge_stats(agg, _parse_access_lines(text.splitlines()))
             cache["offset"] = offset
             cache["agg"] = agg
+            cache["v"] = STATS_FILTER_VERSION
             CTX.store.save()
-    today = dt.date.today()
-    day_keys = [(today - dt.timedelta(days=i)).isoformat()
-                for i in range(days - 1, -1, -1)]
-    series = [{"day": d,
-               "requests": agg["daily"].get(d, {}).get("requests", 0),
-               "bytes": agg["daily"].get(d, {}).get("bytes", 0)}
-              for d in day_keys]
-    top_urls = sorted(agg["urls"].items(), key=lambda x: -x[1])[:10]
-    top_ips = sorted(agg["ips"].items(), key=lambda x: -x[1])[:10]
-    codes = sorted(agg["codes"].items(), key=lambda x: -x[1])
-    return {"requests": agg["requests"], "bytes": agg["bytes"],
-            "bots": agg.get("bots", 0),
-            "codes": codes, "top_urls": top_urls, "top_ips": top_ips,
-            "series": series}
-
-
-def _empty_agg():
-    return {"requests": 0, "bytes": 0, "bots": 0, "codes": {}, "urls": {},
-            "ips": {}, "daily": {}}
+    return _stats_payload(agg, days)
 
 
 def read_log(site, kind="access", max_bytes=None, filtr=None, limit=300):

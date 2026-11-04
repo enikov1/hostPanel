@@ -479,7 +479,18 @@ def site_stats_api(handler, qs, sid):
         return err("сайт не найден", 404)
     days = int(qs.get("days", ["14"])[0] or 14)
     days = max(1, min(90, days))
-    return ok(stats=stats.site_stats(site, days))
+    filtr = {}
+    for key in ("code", "ip", "url", "since", "until"):
+        if qs.get(key, [""])[0]:
+            filtr[key] = qs[key][0]
+    if qs.get("errors_only", ["0"])[0] in ("1", "true"):
+        filtr["errors_only"] = True
+    if qs.get("bots_only", ["0"])[0] in ("1", "true"):
+        filtr["bots_only"] = True
+    if filtr.get("code") and not str(filtr["code"]).isdigit():
+        return err("некорректный код статуса")
+    return ok(stats=stats.site_stats(site, days,
+                                     filtr or None))
 
 
 @get("/api/site/:sid/logs")
