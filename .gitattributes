@@ -1,0 +1,11 @@
+# Сценические скрипты и код всегда с LF — иначе bash на Linux падает
+*.sh text eol=lf
+*.py text eol=lf
+hcp text eol=lf
+VERSION text eol=lf
+*.md text
+*.vue text
+*.ts text
+*.json text
+*.css text
+*.html text

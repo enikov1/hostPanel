@@ -1,0 +1,28 @@
+# --- секреты и машинно-специфичные файлы (НЕ коммитить) ---
+deploy.sh
+root ssh admin Данные.txt
+*.local
+
+# --- сборка и рабочие каталоги ---
+production/
+server-pull/
+deploy-tmp/
+.prod-stage/
+tmp/
+*.log
+
+# --- Node.js / Vite ---
+web-src/node_modules/
+web-src/dist/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.bak*
+*.egg-info/
+.venv/
+
+# --- служебное ---
+.DS_Store
+Thumbs.db

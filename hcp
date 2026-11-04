@@ -1,0 +1,627 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""hcp — консольный клиент панели HostPanel.
+
+Команды (каждая доступна и как отдельная программа hcp-<команда>):
+
+  hcp-login                     вход (логин+пароль, при 2FA — код) и выдача
+                                CLI-токена в /opt/hostpanel/cli-token
+  hcp-logout                    отозвать CLI-токен
+  hcp-info                      сводка: версия, ресурсы, службы, сайты, бэкапы
+  hcp-status                    кратко: службы и сайты
+  hcp-sites                     список сайтов (домен, PHP, SSL, размер)
+  hcp-create <домен>            создать сайт [--php 8.4] [--server nginx]
+                                [--db] [--ssl none|selfsigned|letsencrypt
+                                --email ящик@домен]
+  hcp-site-remove <домен>       удалить сайт (--yes без вопросов)
+  hcp-reset-password            аварийный сброс пароля администратора —
+                                РАБОТАЕТ БЕЗ hcp-login (достаточно root на
+                                сервере; если CLI-токена нет, используется
+                                одноразовый код) (новый пароль печатается
+                                один раз; свой пароль: echo 'пароль' |
+                                hcp-reset-password --stdin; забыли и 2FA:
+                                --drop-2fa)
+  hcp-mail                      почтовые домены и ящики
+  hcp-mail-pass <ящик>          сменить пароль ящика (по умолчанию новый
+                                случайный; свой: --stdin или --password)
+  hcp-db                        список баз данных
+  hcp-db-pass <база>            сменить пароль пользователя базы
+                                [--user имя] [--stdin | --password]
+  hcp-backup [--all|--site d]   создать резервную копию [--no-db]
+  hcp-backups                   список резервных копий
+  hcp-cron                      задачи планировщика (+ служебные)
+  hcp-cron-run <номер>          запустить задачу сейчас и показать вывод
+  hcp-services                  список служб и их состояние
+  hcp-service-restart <имя>     перезапустить службу
+  hcp-apps                      установленное ПО и приложения сайтов
+  hcp-help                      эта справка
+
+Безопасность:
+  • hcp-login спрашивает пароль скрыто и никогда не принимает его
+    в аргументах командной строки (не светится в ps/history);
+  • CLI-токен 256 бит выдаётся только при вводе верного пароля (+2FA,
+    если включена); в панели хранится только его SHA-256;
+  • токен лежит в /opt/hostpanel/cli-token с правами 0600 (только root);
+  • все команды работают ТОЛЬКО с самого сервера (127.0.0.1): даже
+    украденный токен не действует из интернета;
+  • больше 8 неудачных hcp-login за 5 минут — пауза;
+  • каждая команда проходит проверку прав root; выдача/отзыв токена и все
+    изменения пишутся в журнал панели (Настройки → журнал операций);
+  • hcp-logout (или удаление файла токена) мгновенно закрывает доступ.
+
+Переменные окружения: HCP_URL (адрес панели, по умолчанию
+http://127.0.0.1:8080), HCP_HOME (папка панели, по умолчанию
+/opt/hostpanel). HCP_SKIP_ROOT_CHECK=1 — только для тестов/демо.
+"""
+import getpass
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+HCP_URL = os.environ.get("HCP_URL", "http://127.0.0.1:8080").rstrip("/")
+HCP_HOME = os.environ.get("HCP_HOME", "/opt/hostpanel")
+TOKEN_FILE = os.environ.get("HCP_TOKEN_FILE",
+                            os.path.join(HCP_HOME, "cli-token"))
+
+
+# ------------------------------------------------------------- утилиты ----
+def fail(msg, code=1):
+    print("Ошибка: %s" % msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def need_root():
+    if os.geteuid() != 0 and os.environ.get("HCP_SKIP_ROOT_CHECK") != "1":
+        fail("команды hcp выполняются от root — запустите через sudo "
+             "(или задайте HCP_SKIP_ROOT_CHECK=1 для демо-режима)")
+
+
+def read_token():
+    try:
+        with open(TOKEN_FILE, encoding="utf-8") as f:
+            token = f.read().strip()
+    except OSError:
+        fail("CLI-токен не найден (%s) — сначала выполните hcp-login"
+             % TOKEN_FILE)
+    if not token:
+        fail("файл токена пуст — выполните hcp-login заново")
+    return token
+
+
+_TOKEN = ""
+
+
+def api(method, path, body=None, token=None, timeout=60, reset=None):
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(HCP_URL + path, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    if token or _TOKEN:
+        req.add_header("X-CLI-Token", token or _TOKEN)
+    if reset:
+        req.add_header("X-Reset-Auth", reset)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode("utf-8"))
+        except Exception:  # noqa: BLE001
+            return {"ok": False, "error": "HTTP %s" % e.code}
+    except urllib.error.URLError as e:
+        fail("панель недоступна (%s): %s" % (HCP_URL, e.reason))
+    except json.JSONDecodeError:
+        fail("панель вернула не JSON — проверьте HCP_URL")
+
+
+def must(resp, timeout_note=None):
+    if not resp.get("ok"):
+        fail(resp.get("error", "неизвестная ошибка"))
+    return resp
+
+
+def gen_password():
+    return os.urandom(15).hex()
+
+
+def table(rows, headers):
+    """Простая таблица с фиксированной шириной колонок."""
+    if not rows:
+        print("  (пусто)")
+        return
+    widths = [len(h) for h in headers]
+    for r in rows:
+        for i, c in enumerate(r):
+            widths[i] = max(widths[i], len(str(c)))
+    fmt = "  " + "  ".join("%%-%ds" % w for w in widths)
+    print(fmt % tuple(headers))
+    print(fmt % tuple("-" * w for w in widths))
+    for r in rows:
+        print(fmt % tuple(str(c) for c in r))
+
+
+def human(n):
+    n = float(n or 0)
+    for u in ("Б", "КБ", "МБ", "ГБ", "ТБ"):
+        if n < 1024 or u == "ТБ":
+            return ("%d %s" % (n, u)) if u == "Б" else \
+                   (("%0.1f %s" % (n, u)).replace(".", ","))
+        n /= 1024
+    return "%d Б" % n
+
+
+def age(ts):
+    import datetime
+    if not ts:
+        return "—"
+    if isinstance(ts, (int, float)):
+        try:
+            return datetime.datetime.fromtimestamp(int(ts)).strftime(
+                "%Y-%m-%d %H:%M")
+        except (ValueError, OSError, OverflowError):
+            return "—"
+    return str(ts)[:16]
+
+
+# --------------------------------------------------------------- вход -----
+def cmd_login(args):
+    login = args[0] if args else "admin"
+    print("Вход в HostPanel для консольного доступа (hcp).")
+    print("Панель: %s. Пароль вводится скрыто и не сохраняется в истории."
+          % HCP_URL)
+    password = getpass.getpass("Пароль (%s): " % login)
+    if not password:
+        fail("пустой пароль")
+    body = {"login": login, "password": password}
+    resp = api("POST", "/api/cli/login", body)
+    if resp.get("need_code") and not resp.get("ok"):
+        code = input("Код из приложения-аутентификатора (2FA): ").strip()
+        resp = api("POST", "/api/cli/login", dict(body, code=code))
+    if not resp.get("ok"):
+        fail(resp.get("error", "вход не выполнен"))
+    token = resp.get("token") or ""
+    if not token:
+        fail("панель не вернула токен")
+    try:
+        fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(token + "\n")
+    except OSError as e:
+        fail("не удалось записать %s: %s" % (TOKEN_FILE, e))
+    print("Вход выполнен. CLI-токен сохранён в %s (права 0600, только root)."
+          % TOKEN_FILE)
+    print("Отпечаток: %s… — команды hcp готовы к работе." % token[:8])
+    print("Отозвать доступ: hcp-logout.")
+
+
+def cmd_logout(args):
+    need_root()
+    token = ""
+    try:
+        with open(TOKEN_FILE, encoding="utf-8") as f:
+            token = f.read().strip()
+    except OSError:
+        pass
+    if token:
+        resp = api("POST", "/api/cli/logout", {}, token=token)
+        # файл удаляем в любом случае: даже если панель перезапускалась
+        # и хеш уже не совпадает, локальный доступ надо закрыть
+        if resp.get("ok"):
+            print("Токен отозван на панели.")
+        else:
+            print("Панель ответила: %s (токен мог быть уже неактуален)."
+                  % resp.get("error", "?"))
+    try:
+        os.remove(TOKEN_FILE)
+        print("Файл %s удалён. Консольный доступ закрыт." % TOKEN_FILE)
+    except FileNotFoundError:
+        print("Файл токена уже отсутствует.")
+
+
+# -------------------------------------------------------------- просмотр --
+def _svc_rows(svcs):
+    rows = []
+    for s in svcs:
+        st = s.get("state", "unknown")
+        rows.append((s["name"],
+                     "работает" if st == "active" else st.upper(),
+                     s.get("uptime_h", "")))
+    return rows
+
+
+def cmd_info(args):
+    me = must(api("GET", "/api/me"))
+    ov = must(api("GET", "/api/overview"))
+    sites = must(api("GET", "/api/sites")).get("sites", [])
+    m = ov.get("metrics", {})
+    print("HostPanel %s%s — %s"
+          % (me.get("version"), " (демо-режим)" if me.get("demo") else "",
+             me.get("login", "admin")))
+    print("Нагрузка: CPU %s%% · ОЗУ %s из %s · диск %s из %s · аптайм %s дн."
+          % (m.get("cpu"), human((m.get("ram") or {}).get("used", 0)),
+             human((m.get("ram") or {}).get("total", 0)),
+             human((m.get("disk") or {}).get("used", 0)),
+             human((m.get("disk") or {}).get("total", 0)),
+             "%.1f" % (m.get("uptime_sec", 0) / 86400)))
+    bad = [s for s in ov.get("services", []) if s.get("state") != "active"]
+    svcs = ov.get("services", [])
+    print("Службы: %d из %d работают%s"
+          % (len(svcs) - len(bad), len(svcs),
+             ", не работают: %s" % ", ".join(s["name"] for s in bad)
+             if bad else ""))
+    print("Сайты: %d (включено %d, на обслуживании %d) · базы: %s · "
+          "бэкапы: %s"
+          % (ov.get("sites_count", 0), ov.get("sites_enabled", 0),
+             ov.get("sites_maintenance", 0), ov.get("dbs_count", "?"),
+             ov.get("backups_count", "?")))
+    if sites:
+        rows = [(s["domain"],
+                 "вкл" if s.get("enabled") else "выкл",
+                 s.get("webserver", ""), s.get("php") or "—",
+                 human(s.get("disk", 0))) for s in sites]
+        print("\nСайты:")
+        table(rows, ("ДОМЕН", "СТАТУС", "ВЕБ-СЕРВЕР", "PHP", "РАЗМЕР"))
+    notes = ov.get("notifications") or []
+    if notes:
+        print("\nПоследние уведомления:")
+        for n in notes[:5]:
+            print("  [%s] %s" % (n.get("ts", ""), n.get("text", "")))
+
+
+def cmd_status(args):
+    ov = must(api("GET", "/api/overview"))
+    table(_svc_rows(ov.get("services", [])),
+          ("СЛУЖБА", "СОСТОЯНИЕ", "ВРЕМЯ РАБОТЫ"))
+    cron = must(api("GET", "/api/cron"))
+    print("\nАвтобэкап: %s" % ("включён (%s)"
+          % cron.get("auto_cron") if cron.get("auto") else "выключен"))
+    sites = must(api("GET", "/api/sites")).get("sites", [])
+    down = [s["domain"] for s in sites if not s.get("enabled")]
+    print("Сайтов: %d, отключено: %s"
+          % (len(sites), ", ".join(down) if down else "нет"))
+
+
+def cmd_sites(args):
+    sites = must(api("GET", "/api/sites")).get("sites", [])
+    rows = [(s["domain"], "вкл" if s.get("enabled") else "выкл",
+             s.get("webserver", ""), s.get("php") or "—",
+             (s.get("ssl") or {}).get("kind", "none"),
+             human(s.get("disk", 0)), age(s.get("created"))) for s in sites]
+    table(rows, ("ДОМЕН", "СТАТУС", "ВЕБ-СЕРВЕР", "PHP", "SSL", "РАЗМЕР",
+                 "СОЗДАН"))
+
+
+def cmd_services(args):
+    svcs = must(api("GET", "/api/services")).get("services", [])
+    table(_svc_rows(svcs), ("СЛУЖБА", "СОСТОЯНИЕ", "ВРЕМЯ РАБОТЫ"))
+
+
+def cmd_apps(args):
+    apps = must(api("GET", "/api/apps")).get("apps", [])
+    rows = [(a["domain"], a.get("app", "phpMyAdmin"),
+             "установлено" if a.get("installed") else "—",
+             a.get("url") or "") for a in apps]
+    table(rows, ("САЙТ", "ПРИЛОЖЕНИЕ", "СТАТУС", "АДРЕС"))
+    soft = must(api("GET", "/api/software")).get("catalog", [])
+    inst = [(p.get("name"), p.get("version", "")) for p in soft
+            if p.get("installed")]
+    if inst:
+        print("\nУстановленный софт:")
+        table(inst, ("ПАКЕТ", "ВЕРСИЯ"))
+
+
+# --------------------------------------------------------------- сайты ----
+def cmd_create(args):
+    need_root()
+    if not args or args[0].startswith("-"):
+        fail("укажите домен: hcp-create site.ru [--php 8.4] [--server nginx]"
+             " [--db] [--ssl none|selfsigned|letsencrypt --email я@site.ru]")
+    domain = args[0].lower()
+    body = {"domain": domain, "webserver": "nginx", "php": ""}
+    it = iter(args[1:])
+    for a in it:
+        if a == "--php":
+            body["php"] = next(it, "")
+        elif a == "--server":
+            body["webserver"] = next(it, "nginx")
+        elif a == "--db":
+            body["create_db"] = True
+        elif a == "--ssl":
+            body["ssl_kind"] = next(it, "none")
+        elif a == "--email":
+            body["email"] = next(it, "")
+    if body.get("ssl_kind") == "letsencrypt" and not body.get("email"):
+        fail("для Let's Encrypt укажите --email")
+    resp = must(api("POST", "/api/sites/create", body, timeout=120))
+    print("Готово: %s" % resp.get("message", "сайт создан"))
+    db = resp.get("db")
+    if db:
+        print("База данных: %s · пользователь: %s · пароль: %s"
+              % (db["name"], db["user"], db["password"]))
+        print("Сохраните пароль — он показывается один раз.")
+
+
+def cmd_site_remove(args):
+    need_root()
+    domain = next((a for a in args if not a.startswith("-")), "")
+    if not domain:
+        fail("укажите домен: hcp-site-remove site.ru [--yes]")
+    if "--yes" not in args:
+        ans = input("Удалить сайт %s вместе с конфигами? Введите 'да': "
+                    % domain)
+        if ans.strip().lower() not in ("да", "y", "yes"):
+            print("Отменено.")
+            return
+    sites = must(api("GET", "/api/sites")).get("sites", [])
+    site = next((s for s in sites if s["domain"] == domain.lower()), None)
+    if not site:
+        fail("сайт %s не найден" % domain)
+    resp = must(api("POST", "/api/sites/delete", {"id": site["id"]},
+                    timeout=120))
+    print("Готово: %s" % resp.get("message", "сайт удалён"))
+
+
+# ------------------------------------------------------------- пароли -----
+def read_stdin_password():
+    pw = sys.stdin.readline().rstrip("\r\n")
+    if not pw:
+        fail("пароль не получен из stdin")
+    return pw
+
+
+def _emergency_reset(body):
+    """Аварийный сброс без логина: root пишет одноразовый код в файл
+    (0600), панель принимает его только с 127.0.0.1 и только 2 минуты,
+    после первой попытки код сгорает — повторить можно новой командой."""
+    import secrets
+    nonce = secrets.token_hex(32)
+    path = os.path.join(HCP_HOME, "reset-nonce")
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(nonce)
+    except OSError as e:
+        fail("не удалось создать %s: %s (панель установлена? HCP_HOME верный?)"
+             % (path, e))
+    resp = api("POST", "/api/cli/reset-password", body, reset=nonce)
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return resp
+
+
+def cmd_reset_password(args):
+    need_root()
+    body = {}
+    if "--stdin" in args:
+        body["password"] = read_stdin_password()
+    if "--drop-2fa" in args:
+        body["drop_totp"] = True
+    resp = api("POST", "/api/cli/reset-password", body)
+    if not resp.get("ok"):
+        print("CLI-токен не принят (%s)." % resp.get("error", "?"))
+        print("Выполняю аварийный сброс без логина (одноразовый код root)…")
+        resp = _emergency_reset(body)
+    must(resp)
+    print("Пароль администратора изменён, все активные сессии завершены.")
+    print("Логин: %s · новый пароль: %s"
+          % (resp.get("login", "admin"), resp.get("password")))
+    if resp.get("file"):
+        print("Копия сохранена в %s (0600) — удалите её после входа."
+              % resp["file"])
+    print("Войдите в панель и смените пароль на свой.")
+
+
+def cmd_mail(args):
+    data = must(api("GET", "/api/mail"))
+    st = data.get("status") or {}
+    print("Почтовый сервер: %s"
+          % ("работает" if st.get("installed") or st.get("active")
+             else (st.get("detail") or "не установлен")))
+    doms = data.get("domains") or []
+    if doms:
+        print("Домены: %s" % ", ".join(d.get("domain", str(d))
+                                       for d in doms))
+    boxes = data.get("mailboxes") or []
+    rows = [(b.get("email"), age(b.get("created"))) for b in boxes]
+    print("Ящики:")
+    table(rows, ("ЯЩИК", "СОЗДАН"))
+
+
+def _password_for(args):
+    if "--stdin" in args:
+        return read_stdin_password()
+    if "--password" in args:
+        i = args.index("--password")
+        try:
+            return args[i + 1]
+        except IndexError:
+            fail("после --password укажите значение")
+    return ""
+
+
+def cmd_mail_pass(args):
+    need_root()
+    email = next((a for a in args if not a.startswith("-")), "")
+    if not email:
+        fail("укажите ящик: hcp-mail-pass info@site.ru [--stdin|--password X]"
+             " (без них пароль будет сгенерирован)")
+    pw = _password_for(args) or gen_password()
+    resp = must(api("POST", "/api/mail/boxes/password",
+                    {"email": email, "password": pw}))
+    print("Готово: %s" % resp.get("message", "пароль ящика изменён"))
+    print("Ящик: %s · новый пароль: %s" % (email, pw))
+
+
+def cmd_db(args):
+    data = must(api("GET", "/api/db"))
+    if not data.get("mysql_available"):
+        print("MariaDB не установлена (раздел «Установка ПО»).")
+    rows = [(d.get("name"), d.get("user") or "—",
+             human(d.get("size_bytes")), d.get("tables") if d.get("tables")
+             is not None else "—") for d in data.get("dbs", [])]
+    table(rows, ("БАЗА", "ПОЛЬЗОВАТЕЛЬ", "РАЗМЕР", "ТАБЛИЦ"))
+
+
+def cmd_db_pass(args):
+    need_root()
+    name = next((a for a in args if not a.startswith("-")), "")
+    if not name:
+        fail("укажите базу: hcp-db-pass site_db [--user site_db_user]"
+             " [--stdin|--password X] (без них пароль будет сгенерирован)")
+    user = ""
+    if "--user" in args:
+        user = args[args.index("--user") + 1]
+    if not user:
+        data = must(api("GET", "/api/db"))
+        row = next((d for d in data.get("dbs", [])
+                    if d.get("name") == name), None)
+        user = (row or {}).get("user", "")
+    if not user:
+        fail("у базы %s нет пользователя — укажите --user" % name)
+    pw = _password_for(args) or gen_password()
+    resp = must(api("POST", "/api/db/pass",
+                    {"name": name, "user": user, "password": pw}))
+    print("Готово: %s" % resp.get("message", "пароль изменён"))
+    print("База: %s · пользователь: %s · новый пароль: %s"
+          % (name, user, pw))
+    print("Обновите пароль в конфиге сайта (wp-config.php и т.п.).")
+
+
+# ------------------------------------------------------- бэкапы и cron ----
+def cmd_backup(args):
+    need_root()
+    site_ids, names = [], []
+    if "--all" in args or "--site" not in args:
+        sites = must(api("GET", "/api/sites")).get("sites", [])
+        site_ids = [s["id"] for s in sites]
+        names = [s["domain"] for s in sites]
+    else:
+        i = args.index("--site")
+        wanted = [a.lower() for a in args[i + 1:] if not a.startswith("-")]
+        sites = must(api("GET", "/api/sites")).get("sites", [])
+        for w in wanted:
+            s = next((x for x in sites if x["domain"] == w), None)
+            if not s:
+                fail("сайт %s не найден" % w)
+            site_ids.append(s["id"])
+            names.append(w)
+    if not site_ids:
+        fail("нет сайтов для резервной копии")
+    with_db = "--no-db" not in args
+    print("Создаю резервную копию: %s (базы: %s)…"
+          % (", ".join(names) or "—", "да" if with_db else "нет"))
+    resp = must(api("POST", "/api/backups/create",
+                    {"site_ids": site_ids, "with_db": with_db},
+                    timeout=1800))
+    print("Готово: %s" % resp.get("message", "копия создана"))
+
+
+def cmd_backups(args):
+    data = must(api("GET", "/api/backups")).get("backups", [])
+    rows = [(b.get("id"), age(b.get("ts") or b.get("created")),
+             ", ".join(b.get("sites", []) or [b.get("site", "")]),
+             human(b.get("size_bytes") or b.get("size", 0)),
+             os.path.basename(b.get("file", ""))) for b in data]
+    table(rows, ("ID", "ДАТА", "САЙТЫ", "РАЗМЕР", "ФАЙЛ"))
+
+
+def cmd_cron(args):
+    data = must(api("GET", "/api/cron"))
+    jobs = data.get("jobs", [])
+    rows = [(i, j.get("expr") or j.get("schedule", ""),
+             j.get("comment", ""),
+             j.get("command", ""), "вкл" if j.get("enabled", True) else "выкл")
+            for i, j in enumerate(jobs)]
+    print("Задачи панели:")
+    table(rows, ("№", "РАСПИСАНИЕ", "ОПИСАНИЕ", "КОМАНДА", "СТАТУС"))
+    sysj = data.get("system_jobs") or []
+    if sysj:
+        print("\nСлужебные задания (созданы панелью/софтом):")
+        for s in sysj:
+            print("  %s %s" % (s.get("schedule", ""),
+                               s.get("command", "")))
+
+
+def cmd_cron_run(args):
+    need_root()
+    if not args or not args[0].isdigit():
+        fail("укажите номер задачи: hcp-cron-run 0 (номера: hcp-cron)")
+    resp = must(api("POST", "/api/cron/run", {"index": int(args[0])},
+                    timeout=180))
+    print("Код завершения: %s" % resp.get("code"))
+    out = (resp.get("output") or "").strip()
+    print("Вывод:\n%s" % (out if out else "  (пусто)"))
+
+
+def cmd_service_restart(args):
+    need_root()
+    if not args:
+        fail("укажите службу: hcp-service-restart nginx (список: hcp-services)")
+    resp = must(api("POST", "/api/services/restart", {"name": args[0]},
+                    timeout=120))
+    print("Готово: %s" % resp.get("message", "служба перезапущена"))
+
+
+def cmd_help(args):
+    print(__doc__.strip())
+
+
+COMMANDS = {
+    "login": cmd_login, "logout": cmd_logout,
+    "info": cmd_info, "status": cmd_status, "sites": cmd_sites,
+    "create": cmd_create, "site-remove": cmd_site_remove,
+    "reset-password": cmd_reset_password,
+    "mail": cmd_mail, "mail-pass": cmd_mail_pass,
+    "db": cmd_db, "db-pass": cmd_db_pass,
+    "backup": cmd_backup, "backups": cmd_backups,
+    "cron": cmd_cron, "cron-run": cmd_cron_run,
+    "services": cmd_services, "service-restart": cmd_service_restart,
+    "apps": cmd_apps, "help": cmd_help,
+}
+
+# команды, работающие без CLI-токена и root
+OPEN_COMMANDS = {"login", "help"}
+
+
+def main():
+    global _TOKEN
+    argv = sys.argv[1:]
+    if not argv:
+        cmd_help([])
+        return
+    cmd = argv[0]
+    if cmd in ("-h", "--help"):
+        cmd = "help"
+    fn = COMMANDS.get(cmd)
+    if not fn:
+        fail("неизвестная команда: %s (список: hcp-help)" % cmd, 2)
+    if cmd == "reset-password":
+        # аварийная команда: работает и БЕЗ CLI-токена (одноразовый код
+        # root), поэтому отсутствие/просроченность токена не фатально —
+        # cmd_reset_password сам переключится на аварийный путь
+        need_root()
+        if os.path.exists(TOKEN_FILE):
+            try:
+                with open(TOKEN_FILE, encoding="utf-8") as f:
+                    _TOKEN = f.read().strip()
+            except OSError:
+                _TOKEN = ""
+    elif cmd not in OPEN_COMMANDS:
+        need_root()
+        if os.path.exists(TOKEN_FILE):
+            _TOKEN = read_token()
+            resp = api("GET", "/api/me")
+            if not resp.get("ok") and cmd != "logout":
+                fail(resp.get("error", "токен отклонён") +
+                     " — выполните hcp-login заново")
+        elif cmd != "logout":
+            fail("CLI-токен не найден (%s) — сначала выполните hcp-login"
+                 % TOKEN_FILE)
+    fn(argv[1:])
+
+
+if __name__ == "__main__":
+    main()
