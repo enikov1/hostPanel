@@ -43,6 +43,9 @@ function close(): void {
 
 <style>
 /* корневой оверлей — тот же класс, что и в прежней вёрстке */
-.modals-root { display: none; }
+.modals-root { position: fixed; inset: 0; z-index: 100; display: none;
+  align-items: flex-start; justify-content: center;
+  background: rgba(20, 30, 45, .45); backdrop-filter: blur(2px);
+  overflow-y: auto; padding: 7vh 16px 30px; }
 .modals-root.open { display: flex; }
 </style>
