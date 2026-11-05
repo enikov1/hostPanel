@@ -1,0 +1,78 @@
+/* ============ Парольные поля: генерация, сила, показ, копирование ============ */
+import { icon, copyIconSvg } from '../core/icons.js';
+import { esc } from '../core/format.js';
+import { toast } from './toast.js';
+export function genPassword(len = 16) {
+    const a = 'abcdefghjkmnpqrstuvwxyz', A = 'ABCDEFGHJKMNPQRSTUVWXYZ', d = '23456789', s = '!@#$%&*_-+=';
+    const all = a + A + d + s;
+    const pick = (set) => set[Math.floor(Math.random() * set.length)];
+    let p = pick(a) + pick(A) + pick(d) + pick(s);
+    for (let i = p.length; i < len; i++)
+        p += pick(all);
+    return p.split('').sort(() => Math.random() - 0.5).join('');
+}
+export function pwStrength(pw) {
+    if (!pw)
+        return 0;
+    let score = 0;
+    if (pw.length >= 8)
+        score++;
+    if (pw.length >= 12)
+        score++;
+    if (/[a-z]/.test(pw) && /[A-Z]/.test(pw))
+        score++;
+    if (/\d/.test(pw))
+        score++;
+    if (/[^a-zA-Z0-9]/.test(pw))
+        score++;
+    return Math.min(3, Math.floor(score / 2) + (score >= 4 ? 1 : 0));
+}
+/** pwField(id, opts): input + генерация + показ + копирование + индикатор. */
+export function pwField(id, opts = {}) {
+    const ph = opts.placeholder || 'минимум 8 символов';
+    const gen = opts.gen !== false;
+    return '<div class="field"><label>' + (opts.label || 'Пароль') + '</label>' +
+        '<div class="pw-row">' +
+        '<input type="text" id="' + id + '" class="mono" placeholder="' + ph + '" autocomplete="new-password">' +
+        (gen ? '<button class="btn" type="button" title="Сгенерировать надёжный пароль" onclick="pwGenerate(\'' + id + '\')">' + icon('refresh', 14) + '</button>' : '') +
+        '<button class="btn" type="button" title="Показать/скрыть" onclick="pwToggle(\'' + id + '\', this)">' + icon('lock', 14) + '</button>' +
+        '<button class="btn" type="button" title="Скопировать" onclick="copyText(document.getElementById(\'' + id + '\').value, this)">' + copyIconSvg + '</button>' +
+        '</div><div class="pw-strength" id="' + id + '-str"><i></i><i></i><i></i></div>' +
+        '<div class="faint" style="font-size:11.5px;margin-top:4px" id="' + id + '-hint">' +
+        (opts.hint || 'Придумайте пароль или нажмите кнопку генерации — надёжный пароль создастся сам.') +
+        '</div></div>';
+}
+export function pwGenerate(id) {
+    const inp = document.getElementById(id);
+    if (!inp)
+        return;
+    inp.value = genPassword();
+    inp.dispatchEvent(new Event('input'));
+    toast('Надёжный пароль сгенерирован — не забудьте скопировать его');
+}
+export function pwToggle(id, _btn) {
+    const inp = document.getElementById(id);
+    if (!inp)
+        return;
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+export function pwBindStrength(id) {
+    const inp = document.getElementById(id);
+    if (!inp)
+        return;
+    inp.addEventListener('input', () => {
+        const s = pwStrength(inp.value);
+        const bar = document.getElementById(id + '-str');
+        if (bar)
+            Array.from(bar.children).forEach((el, i) => {
+                el.className = i < s ? 'f' + s : '';
+            });
+    });
+}
+/** credRow(key, value, id): строка параметра с кнопкой копирования. */
+export function credRow(key, value, id) {
+    const vid = id || ('cr-' + Math.random().toString(36).slice(2, 8));
+    return '<div class="cred-row"><span class="k">' + esc(key) + '</span>' +
+        '<span class="v" id="' + vid + '">' + esc(value) + '</span>' +
+        '<button class="btn sm icon" type="button" title="Скопировать" onclick="copyText(document.getElementById(\'' + vid + '\').value || document.getElementById(\'' + vid + '\').textContent, this)">' + copyIconSvg + '</button></div>';
+}

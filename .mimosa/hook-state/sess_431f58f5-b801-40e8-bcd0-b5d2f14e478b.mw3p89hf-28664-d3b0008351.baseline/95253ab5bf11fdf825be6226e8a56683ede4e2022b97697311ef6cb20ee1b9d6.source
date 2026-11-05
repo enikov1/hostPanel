@@ -1,0 +1,96 @@
+/* ============ Типы данных API HostPanel ============ */
+
+export interface Me {
+  demo: boolean;
+  version: string;
+  www_root: string;
+  home: string;
+  expert: boolean;
+  must_change_password?: boolean;
+  [k: string]: any;
+}
+
+export interface Service {
+  name: string;
+  state: string;
+  exists: boolean;
+  uptime_sec?: number;
+  uptime_h?: string;
+  since?: string;
+}
+
+export interface Metrics {
+  cpu: number;
+  cores: number;
+  hist: number[];
+  ram: { used: number; total: number; percent: number };
+  disk: { used: number; total: number; percent: number };
+  net: { in_mbit: number; out_mbit: number };
+  uptime_sec: number;
+  load: number[];
+}
+
+export interface SiteSsl {
+  kind: string;
+  expires?: string;
+  domains?: string[];
+  [k: string]: any;
+}
+
+export interface Site {
+  id: number;
+  domain: string;
+  parent?: number | null;
+  webserver: string;
+  php?: string;
+  php_modules?: string[];
+  node?: { enabled: boolean; version: string; port: number; script: string };
+  ssl: SiteSsl;
+  enabled: boolean;
+  maintenance: boolean;
+  security_status?: string;
+  disk?: number;
+  disk_hist?: { t: string; mb: number }[];
+  docroot?: string;
+  fpm?: { pm: string; max_children: number; start_servers: number; min_spare?: number; max_spare?: number };
+  perf?: { gzip?: boolean; static_cache?: boolean; hsts?: boolean; http2?: boolean };
+  snippets?: { www_redirect?: boolean; admin_ip?: string; upload_size?: string };
+  [k: string]: any;
+}
+
+export interface DbEngine {
+  id: string;
+  name: string;
+  available: boolean;
+}
+
+export interface DbInfo {
+  name: string;
+  user?: string;
+  engine?: string;
+  tables?: number;
+  size_bytes?: number;
+}
+
+export interface CronJob {
+  expr: string;
+  command: string;
+  comment?: string;
+  enabled: boolean;
+}
+
+export interface Overview {
+  metrics: Metrics;
+  services: Service[];
+  sites_count: number;
+  sites_enabled: number;
+  sites_maintenance: number;
+  dbs_count: number;
+  backups_count: number;
+  sites_load?: { cpu: number; mem_mb: number; php_workers: number };
+  notifications?: { ts: string; text: string; level?: string }[];
+  [k: string]: any;
+}
+
+/** Слабо типизированный ответ API (у панельных ответов много вариаций). */
+export type ApiData = Record<string, any>;

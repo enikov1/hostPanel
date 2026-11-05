@@ -1,0 +1,36 @@
+/** Хук «сессия истекла» — регистрируется из boot (showLogin). */
+let onUnauthorized = null;
+export function setUnauthorizedHook(fn) {
+    onUnauthorized = fn;
+}
+export class ApiError extends Error {
+    constructor(message) { super(message); }
+}
+/** Аутентификация — HttpOnly-cookie (SameSite=Strict); CSRF на сервере
+ *  проверяется по Origin, токен в localStorage не хранится. */
+export async function api(path, opts = {}) {
+    const init = { method: opts.method || 'GET', headers: {} };
+    if (opts.body !== undefined) {
+        init.method = opts.method || 'POST';
+        init.headers['Content-Type'] = 'application/json';
+        init.body = JSON.stringify(opts.body);
+    }
+    const r = await fetch(path, init);
+    if (r.status === 401) {
+        if (onUnauthorized)
+            onUnauthorized();
+        throw new ApiError('требуется вход');
+    }
+    const j = await r.json();
+    if (j && j.ok === false)
+        throw new ApiError(j.error || 'ошибка запроса');
+    return j;
+}
+/** POST multipart/form-data (загрузка файлов, импорт). */
+export async function apiForm(path, fd) {
+    const r = await fetch(path, { method: 'POST', body: fd });
+    const j = await r.json();
+    if (!j.ok)
+        throw new ApiError(j.error || 'ошибка запроса');
+    return j;
+}

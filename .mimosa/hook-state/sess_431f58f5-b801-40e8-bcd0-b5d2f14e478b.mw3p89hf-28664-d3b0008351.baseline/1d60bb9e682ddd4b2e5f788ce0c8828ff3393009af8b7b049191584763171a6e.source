@@ -1,0 +1,9 @@
+/* ============ Тема оформления (light/dark) ============ */
+import { icon } from './icons';
+
+export function applyTheme(t: string): void {
+  document.documentElement.setAttribute('data-theme', t);
+  try { localStorage.setItem('hp_theme', t); } catch (e) {}
+  const btn = document.getElementById('btn-theme');
+  if (btn) btn.innerHTML = icon(t === 'dark' ? 'sun' : 'moon', 17);
+}

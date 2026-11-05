@@ -1,0 +1,44 @@
+/* ============ API-клиент: fetch + JSON + обработка ошибок ============ */
+import type { ApiData } from '../types';
+
+/** Хук «сессия истекла» — регистрируется из boot (showLogin). */
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHook(fn: (() => void) | null): void {
+  onUnauthorized = fn;
+}
+
+export class ApiError extends Error {
+  constructor(message: string) { super(message); }
+}
+
+export interface ApiOptions {
+  method?: string;
+  body?: unknown;
+}
+
+/** Аутентификация — HttpOnly-cookie (SameSite=Strict); CSRF на сервере
+ *  проверяется по Origin, токен в localStorage не хранится. */
+export async function api(path: string, opts: ApiOptions = {}): Promise<any> {
+  const init: RequestInit = { method: opts.method || 'GET', headers: {} as Record<string, string> };
+  if (opts.body !== undefined) {
+    init.method = opts.method || 'POST';
+    (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(opts.body);
+  }
+  const r = await fetch(path, init);
+  if (r.status === 401) {
+    if (onUnauthorized) onUnauthorized();
+    throw new ApiError('требуется вход');
+  }
+  const j = await r.json();
+  if (j && j.ok === false) throw new ApiError(j.error || 'ошибка запроса');
+  return j;
+}
+
+/** POST multipart/form-data (загрузка файлов, импорт). */
+export async function apiForm(path: string, fd: FormData): Promise<ApiData> {
+  const r = await fetch(path, { method: 'POST', body: fd });
+  const j = await r.json();
+  if (!j.ok) throw new ApiError(j.error || 'ошибка запроса');
+  return j;
+}

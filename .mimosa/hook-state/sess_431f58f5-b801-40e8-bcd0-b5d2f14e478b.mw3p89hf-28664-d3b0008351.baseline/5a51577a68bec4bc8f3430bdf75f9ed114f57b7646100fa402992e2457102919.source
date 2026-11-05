@@ -1,0 +1,77 @@
+/* ============ Редактор кода с подсветкой (Prism, оверлей) ============ */
+import { esc } from '../core/format';
+
+declare const Prism: any;
+
+/** Язык Prism по пути файла. */
+export function prismLangFromPath(path: string): string {
+  const ext = (path.split('.').pop() || '').toLowerCase();
+  const map: Record<string, string> = {
+    php: 'php', conf: 'nginx', ini: 'ini', sql: 'sql', json: 'json',
+    js: 'javascript', mjs: 'javascript', css: 'css', html: 'markup', htm: 'markup',
+    py: 'python', sh: 'bash', yml: 'yaml', yaml: 'yaml', htaccess: 'apacheconf',
+    htpasswd: 'apacheconf', md: 'markup', xml: 'markup', cnf: 'ini', env: 'bash',
+    service: 'ini', timer: 'ini', socket: 'ini',
+  };
+  if (path.includes('nginx')) return 'nginx';
+  if (path.includes('apache') || path.includes('.ht')) return 'apacheconf';
+  return map[ext] || 'markup';
+}
+
+/** Язык Prism по типу конфига панели. */
+export function prismLangFromKind(kind: string): string {
+  return ({
+    nginx: 'nginx', apache: 'apacheconf', fpm: 'ini', php: 'ini',
+    ini: 'ini', conf: 'bash', postfix: 'ini', dovecot: 'bash',
+    fail2ban: 'ini',
+  } as Record<string, string>)[kind] || 'markup';
+}
+
+export interface CodeEditor {
+  get: () => string;
+  el: HTMLElement;
+}
+
+/** Монтирует в el редактор: гуттер с номерами строк, слой подсветки,
+ *  прозрачный textarea поверх. */
+export function mountCodeEditor(el: HTMLElement, value: string, lang: string): CodeEditor {
+  el.classList.add('code-wrap');
+  el.innerHTML =
+    '<div class="code-gutter mono"></div>' +
+    '<div class="code-scroll"><pre class="code-hl language-' + lang +
+    '"><code class="language-' + lang + '"></code></pre>' +
+    '<textarea class="code-input mono" spellcheck="false" autocomplete="off"></textarea></div>';
+  const ta = el.querySelector('.code-input') as HTMLTextAreaElement;
+  const hl = el.querySelector('.code-hl') as HTMLElement;
+  const code = el.querySelector('.code-hl code') as HTMLElement;
+  const gut = el.querySelector('.code-gutter') as HTMLElement;
+  ta.value = value || '';
+  function render(): void {
+    const text = ta.value;
+    let html: string;
+    try { html = Prism.highlight(text, Prism.languages[lang] || Prism.languages.markup, lang); }
+    catch (e) { html = esc(text); }
+    code.innerHTML = html + '\n';
+    const lines = text.split('\n').length;
+    let g = '';
+    for (let i = 1; i <= lines; i++) g += i + '\n';
+    gut.textContent = g;
+  }
+  ta.addEventListener('input', render);
+  ta.addEventListener('scroll', () => {
+    hl.parentElement!.scrollTop = ta.scrollTop;
+    hl.parentElement!.scrollLeft = ta.scrollLeft;
+    gut.scrollTop = ta.scrollTop;
+  });
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const s = ta.selectionStart, en = ta.selectionEnd;
+      ta.value = ta.value.slice(0, s) + '    ' + ta.value.slice(en);
+      ta.selectionStart = ta.selectionEnd = s + 4;
+      render();
+    }
+  });
+  render();
+  return { get: () => ta.value, el };
+}

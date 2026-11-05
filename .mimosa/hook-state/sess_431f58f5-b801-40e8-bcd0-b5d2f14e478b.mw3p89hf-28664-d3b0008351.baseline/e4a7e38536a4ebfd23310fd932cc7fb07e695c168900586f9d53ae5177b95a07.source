@@ -1,0 +1,34 @@
+/* ============ Буфер обмена ============ */
+import { icon } from '../core/icons';
+import { toast } from './toast';
+
+function selectFallback(text: string): void {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;opacity:0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    toast('Скопировано в буфер обмена');
+  } catch (e) { toast('Не удалось скопировать — выделите текст вручную', 'warn'); }
+  ta.remove();
+}
+
+function flashBtn(btn: HTMLElement | null, label?: string): void {
+  if (!btn) return;
+  const old = btn.innerHTML;
+  btn.innerHTML = icon('check', 14) + ' ' + (label || 'Скопировано');
+  btn.classList.add('ok');
+  setTimeout(() => { btn.innerHTML = old; btn.classList.remove('ok'); }, 1600);
+}
+
+export function copyText(text: string, btn?: HTMLElement | null): void {
+  const done = (ok: boolean) => {
+    if (ok) { toast('Скопировано в буфер обмена'); if (btn) flashBtn(btn, 'Скопировано'); }
+    else selectFallback(text);
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => done(true)).catch(() => done(false));
+  } else done(false);
+}

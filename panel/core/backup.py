@@ -51,6 +51,12 @@ def create(site_ids=None, with_db=True):
     store.data.setdefault("backups", []).insert(0, meta)
     _retention()
     store.notify("Резервная копия создана (%s)" % utils.human_size(meta["size"]))
+    try:
+        from . import notify as _notify
+        _notify.send_event("backup", "HostPanel: резервная копия создана",
+                           "Размер: %s" % utils.human_size(meta["size"]))
+    except Exception:
+        pass
     store.save()
     return meta
 

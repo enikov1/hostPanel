@@ -1,0 +1,1459 @@
+'use strict';
+/* ============ Страницы: Файлы, Бэкапы, Cron, Брандмауэр, Пакеты, Настройки ============ */
+
+/* ---------- файловый менеджер ---------- */
+window._fmPath = '';
+async function pgFiles(c, startPath){
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  if (startPath) window._fmPath = startPath;
+  if (!window._fmPath) window._fmPath = ME.demo ? '' : ME.www_root;
+  let d;
+  try { d = await api('/api/files?path=' + encodeURIComponent(window._fmPath)); }
+  catch(e){ c.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; window._fmPath=''; return; }
+  window._fmData = d;
+  const parts = d.path === '/' ? [] : d.path.split('/').filter(Boolean);
+  let bread = '<button onclick="fmGo(\'/\')">/ корень</button>';
+  let acc = '';
+  parts.forEach(p => { acc += '/' + p;
+    bread += '<span class="sep">›</span><button onclick="fmGo(\'' + esc(acc) + '\')">' + esc(p) + '</button>'; });
+  c.innerHTML =
+    '<div class="toolbar">' +
+    '<button class="btn" onclick="fmMkdirDlg()">' + icon('plus',15) + ' Папка</button>' +
+    '<button class="btn" onclick="document.getElementById(\'fm-upload\').click()">' + icon('up',15) + ' Загрузить</button>' +
+    '<input type="file" id="fm-upload" class="hidden" onchange="fmUpload(this)">' +
+    '<button class="btn" onclick="go(\'files\')">' + icon('refresh',15) + ' Обновить</button>' +
+    '<span class="spacer"></span><span class="muted" style="font-size:12.5px" id="fm-count"></span></div>' +
+    '<div class="card" style="padding:10px"><div class="bread" style="margin-bottom:10px">' + bread + '</div>' +
+    '<div class="twrap"><table>' +
+    '<thead><tr><th>Имя</th><th>Размер</th><th>Изменён</th><th>Права</th><th>Владелец</th><th></th></tr></thead><tbody>' +
+    (d.parent ? '<tr><td colspan="6"><button class="btn sm" onclick="fmGo(\'' + esc(d.parent) + '\')">← вверх</button></td></tr>' : '') +
+    d.items.map(fmRow).join('') +
+    '</tbody></table></div></div>';
+  const cnt = document.getElementById('fm-count');
+  if (cnt) cnt.textContent = 'Объектов: ' + d.items.length;
+}
+function fmRow(e){
+  const isDir = e.type === 'dir';
+  const icoName = isDir ? 'folder' : 'file';
+  const base = e.name.replace(/\/$/,'');
+  const full = (window._fmData.path === '/' ? '' : window._fmData.path) + '/' + base;
+  const q = encodeURIComponent(full);
+  const acts =
+    (isDir ? '<button class="btn sm icon" title="Открыть" onclick="fmGo(decodeURIComponent(\'' + q + '\'))">' + icon('ext',13) + '</button>' : '') +
+    (!isDir && e.editable ? '<button class="btn sm icon" title="Редактировать" onclick="fmEdit(decodeURIComponent(\'' + q + '\'))">' + icon('edit',13) + '</button>' : '') +
+    (!isDir ? '<button class="btn sm icon" title="Скачать" onclick="location.href=\'/api/files/download?path=' + q + '\'">' + icon('down',13) + '</button>' : '') +
+    (/\.(zip|tar|gz|tgz)$/i.test(e.name) ? '<button class="btn sm icon" title="Распаковать" onclick="fmExtract(decodeURIComponent(\'' + q + '\'))">' + icon('archive',13) + '</button>' : '') +
+    '<button class="btn sm icon" title="Переименовать" onclick="fmRename(decodeURIComponent(\'' + q + '\'), \'' + esc(base) + '\')">' + icon('edit',13) + '</button>' +
+    '<button class="btn sm icon danger" title="Удалить" onclick="fmDel(decodeURIComponent(\'' + q + '\'), \'' + esc(base) + '\')">' + icon('trash',13) + '</button>';
+  return '<tr><td><span class="row" style="gap:8px;flex-wrap:nowrap"><span class="muted">' + icon(icoName,15) + '</span>' +
+    '<span class="mono" style="word-break:break-all">' + esc(e.name) + '</span>' +
+    (e.type==='link' ? ' <span class="faint mono">→ ' + esc(e.target) + '</span>' : '') + '</span></td>' +
+    '<td>' + (isDir ? '—' : fmtSize(e.size)) + '</td><td class="muted">' + esc(e.mtime) + '</td>' +
+    '<td class="mono">' + esc(e.perms) + '</td><td class="muted">' + esc(e.owner) + '</td>' +
+    '<td><div class="actions-cell">' + acts + '</div></td></tr>';
+}
+window._fmGo = p => { window._fmPath = p; go('files'); };
+function fmGo(p){ window._fmGo(p); }
+function fmMkdirDlg(){
+  modal('Новая папка', '<div class="field"><label>Имя папки</label><input type="text" id="mk-name"></div>',
+    '<button class="btn primary" onclick="fmMkdir()">Создать</button><button class="btn" onclick="closeModal()">Отмена</button>');
+}
+async function fmMkdir(){
+  try { const r = await api('/api/files/mkdir', {method:'POST', body:{path: window._fmData.path + '/' + $('#mk-name').value}});
+    toast(esc(r.message)); closeModal(); fmGo(window._fmData.path); } catch(e){ toastErr(e); }
+}
+async function fmEdit(path){
+  try {
+    const d = await api('/api/files/read?path=' + encodeURIComponent(path));
+    modal('Файл: ' + esc(path),
+      '<div id="ed-wrap"></div>' +
+      '<div class="faint" style="font-size:11.5px;margin-top:6px">подсветка: ' +
+      esc(prismLangFromPath(path)) + ' · Tab — отступ</div>',
+      '<button class="btn primary" onclick="fmSave(decodeURIComponent(\'' + encodeURIComponent(path) + '\'))">' + icon('check',15) + ' Сохранить</button>' +
+      '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+    window._edApi = mountCodeEditor(document.getElementById('ed-wrap'),
+      d.content || '', prismLangFromPath(path));
+  } catch(e){ toastErr(e); }
+}
+async function fmSave(path){
+  try { const r = await api('/api/files/save', {method:'POST', body:{path, content: window._edApi.get()}});
+    toast(esc(r.message)); closeModal(); fmGo(window._fmPath); } catch(e){ toastErr(e); }
+}
+function fmDel(path, name){
+  confirmDlg('Удалить', 'Удалить <b>' + esc(name) + '</b>' + '?',
+    async () => { try { const r = await api('/api/files/delete', {method:'POST', body:{paths:[path]}});
+      toast(esc(r.message)); fmGo(window._fmPath); } catch(e){ toastErr(e); } });
+}
+function fmRename(path, oldName){
+  modal('Переименовать', '<div class="field"><label>Новое имя</label><input type="text" id="rn-name" value="' + esc(oldName) + '"></div>',
+    '<button class="btn primary" onclick="fmRenameDo(decodeURIComponent(\'' + encodeURIComponent(path) + '\'))">OK</button><button class="btn" onclick="closeModal()">Отмена</button>');
+}
+async function fmRenameDo(path){
+  try { const r = await api('/api/files/rename', {method:'POST', body:{path, new_name: $('#rn-name').value}});
+    toast(esc(r.message)); closeModal(); fmGo(window._fmPath); } catch(e){ toastErr(e); }
+}
+async function fmUpload(input){
+  if (!input.files.length) return;
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  try {
+    const r = await fetch('/api/files/upload?dest=' + encodeURIComponent(window._fmPath), {
+      method:'POST', body: fd});
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    toast(esc(j.message)); fmGo(window._fmPath);
+  } catch(e){ toastErr(e); }
+}
+async function fmExtract(path){
+  try { const r = await api('/api/files/extract', {method:'POST', body:{path}});
+    toast(esc(r.message)); fmGo(window._fmPath); } catch(e){ toastErr(e); }
+}
+
+/* ---------- бэкапы ---------- */
+async function pgBackups(c){
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let d;
+  try { d = await api('/api/backups'); } catch(e){ c.innerHTML=''; toastErr(e); return; }
+  c.innerHTML =
+    '<div class="toolbar"><button class="btn primary" onclick="createBackupDlg()">' + icon('plus',15) +
+    'Создать резервную копию</button><span class="spacer"></span>' +
+    '<span class="muted" style="font-size:13px">Копий: ' + d.backups.length + '</span></div>' +
+    '<div class="card" style="padding:6px 10px"><div class="twrap"><table>' +
+    '<thead><tr><th>Дата</th><th>Состав</th><th>Размер</th><th></th></tr></thead><tbody>' +
+    (d.backups.map(b => '<tr><td class="mono">' + esc(fmtDate(b.created)) + '</td>' +
+      '<td>' + esc((b.sites||[]).join(', ') || '—') + (b.with_db ? ' + БД' : '') + '</td>' +
+      '<td>' + fmtSize(b.size) + '</td>' +
+      '<td><div class="actions-cell">' +
+      '<a class="btn sm" href="/api/backup/download?id=' + encodeURIComponent(b.id) + '">' + icon('down',13) + '</a>' +
+      '<button class="btn sm" onclick="restoreBackup(\'' + esc(b.id) + '\', \'' + esc(fmtDate(b.created)) + '\')">' + icon('refresh',13) + ' Восстановить</button>' +
+      '<button class="btn sm icon danger" onclick="delBackup(\'' + esc(b.id) + '\')">' + icon('trash',13) + '</button>' +
+      '</div></td></tr>').join('') || '') +
+    '</tbody></table>' + (d.backups.length ? '' : '<div class="empty">Резервных копий пока нет — создайте первую.</div>') + '</div></div>';
+}
+function createBackupDlg(){
+  modal('Резервное копирование',
+    '<label class="check"><input type="checkbox" id="bk-db" checked> Включить дампы баз данных</label>' +
+    '<div class="notice info">В архив войдут файлы всех сайтов, дампы MySQL и настройки панели. Хранятся последние копии (см. Настройки).</div>',
+    '<button class="btn primary" onclick="createBackup()">' + icon('archive',15) + ' Создать</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>');
+}
+async function createBackup(){
+  try {
+    toast('Создаётся резервная копия…');
+    const r = await api('/api/backups/create', {method:'POST', body:{with_db: $('#bk-db').checked}});
+    closeModal(); toast(esc(r.message) + ' (' + fmtSize(r.backup.size) + ')'); go('backups');
+  } catch(e){ toastErr(e); }
+}
+function restoreBackup(id, date){
+  confirmDlg('Восстановление', 'Файлы сайтов будут заменены содержимым копии от <b>' + esc(date) + '</b>. Продолжить?',
+    async () => { try { const r = await api('/api/backups/restore', {method:'POST', body:{id}});
+      toast(esc(r.message)); } catch(e){ toastErr(e); } });
+}
+function delBackup(id){
+  confirmDlg('Удалить копию', 'Резервная копия будет удалена навсегда.',
+    async () => { try { const r = await api('/api/backups/delete', {method:'POST', body:{id}});
+      toast(esc(r.message)); go('backups'); } catch(e){ toastErr(e); } });
+}
+
+/* ---------- планировщик ---------- */
+/* ---------- страница: Планировщик ---------- */
+const CRON_PRESETS = [
+  ['* * * * *', 'каждую минуту'],
+  ['*/5 * * * *', 'каждые 5 минут'],
+  ['*/10 * * * *', 'каждые 10 минут'],
+  ['*/15 * * * *', 'каждые 15 минут'],
+  ['*/30 * * * *', 'каждые 30 минут'],
+  ['0 * * * *', 'каждый час'],
+  ['0 */2 * * *', 'каждые 2 часа'],
+  ['0 */6 * * *', 'каждые 6 часов'],
+  ['0 3 * * *', 'каждый день в 03:00'],
+  ['0 3 * * 0', 'по воскресеньям в 03:00'],
+  ['0 3 1 * *', '1-го числа в 03:00'],
+];
+function cronHuman(expr){
+  const p = (expr || '').trim().split(/\s+/);
+  if (p.length !== 5) return '';
+  const DOW = ['воскресеньям','понедельникам','вторникам','средам',
+    'четвергам','пятницам','субботам'];
+  const MON = ['января','февраля','марта','апреля','мая','июня','июля',
+    'августа','сентября','октября','ноября','декабря'];
+  const pad = n => String(n).padStart(2, '0');
+  const [m, h, dom, mon, dow] = p;
+  const ev = f => f === '*';
+  const step = f => { const x = f.match(/^\*\/(\d+)$/); return x ? +x[1] : 0; };
+  const one = f => { const x = f.match(/^(\d+)$/); return x ? +x[1] : -1; };
+  if (ev(m) && ev(h) && ev(dom) && ev(mon) && ev(dow)) return 'каждую минуту';
+  if (step(m) && ev(h)) return 'каждые ' + step(m) + ' мин';
+  if (one(m) >= 0 && ev(h) && ev(dom) && ev(dow)) return 'ежечасно на ' + one(m) + '-й минуте';
+  if (ev(m) && step(h)) return 'каждые ' + step(h) + ' ч';
+  if (one(m) >= 0 && step(h)) return 'каждые ' + step(h) + ' ч на ' + one(m) + '-й минуте';
+  if (one(m) >= 0 && one(h) >= 0) {
+    const tm = pad(one(h)) + ':' + pad(one(m));
+    if (ev(dom) && ev(mon) && ev(dow)) return 'каждый день в ' + tm;
+    if (ev(dom) && ev(mon) && one(dow) >= 0 && one(dow) <= 6) return 'по ' + DOW[one(dow)] + ' в ' + tm;
+    if (one(dom) > 0 && ev(mon) && ev(dow)) return one(dom) + '-го числа каждого месяца в ' + tm;
+    if (one(dom) > 0 && one(mon) >= 1 && one(mon) <= 12 && ev(dow))
+      return one(dom) + ' ' + MON[one(mon) - 1] + ' в ' + tm;
+  }
+  return '';
+}
+
+async function pgCron(c){
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let d;
+  try { d = await api('/api/cron'); } catch(e){ c.innerHTML=''; toastErr(e); return; }
+  window._cronJobs = d.jobs;
+  const humanRow = j => {
+    const h = cronHuman(j.expr);
+    return h ? '<div class="faint" style="font-size:11.5px;margin-top:2px">' + esc(h) + '</div>' : '';
+  };
+  c.innerHTML =
+    '<div class="hintbox">' + icon('clock',16) + '<div><b>Планировщик</b> запускает команду автоматически: ' +
+    'например, раз в ночь делать выгрузку базы или раз в час чистить временные файлы. ' +
+    'Интервал выбирается готовыми кнопками — писать cron вручную не обязательно.</div></div>' +
+    '<div class="toolbar"><button class="btn primary" onclick="cronDlg(-1)">' + icon('plus',15) +
+    'Добавить задачу</button><span class="spacer"></span>' +
+    '<label class="check" style="margin:0" title="Копия всех сайтов и баз по расписанию">' +
+    '<input type="checkbox" id="cron-auto"' + (d.auto ? ' checked' : '') +
+    ' onchange="cronSave()"> Автобэкап по расписанию</label>' +
+    '<input type="text" id="cron-auto-expr" style="width:110px" value="' + esc(d.auto_cron) +
+    '" class="mono" onchange="cronSave()" oninput="document.getElementById(\'cron-auto-human\').textContent = cronHuman(this.value) || \'cron\'" title="Расписание автобэкапа">' +
+    '<span class="faint" id="cron-auto-human" style="font-size:11.5px">' + esc(cronHuman(d.auto_cron) || 'cron') + '</span>' +
+    '<label class="check" style="margin:0" title="Сертификаты Let\'s Encrypt продлеваются автоматически (certbot renew); панель предупредит, если сертификат истекает раньше чем через 14 дней">' +
+    '<input type="checkbox" id="cron-ssl"' + (d.ssl_auto ? ' checked' : '') +
+    ' onchange="cronSave()"> Автопродление SSL</label>' +
+    '<input type="text" id="cron-ssl-expr" style="width:110px" value="' + esc(d.ssl_auto_cron || '30 3,15 * * *') +
+    '" class="mono" onchange="cronSave()" title="Расписание проверки сертификатов">' +
+    '<span class="faint" style="font-size:11.5px">' + esc(cronHuman(d.ssl_auto_cron || '30 3,15 * * *') || 'cron') + '</span>' +
+    '</div>' +
+    (d.jobs.length ?
+    '<div class="card" style="padding:6px 10px"><div class="twrap"><table>' +
+    '<thead><tr><th>Расписание</th><th>Команда</th><th>Описание</th><th>Вкл.</th><th></th></tr></thead><tbody>' +
+    d.jobs.map((j,i) => '<tr><td><span class="mono">' + esc(j.expr) + '</span>' + humanRow(j) + '</td>' +
+      '<td class="mono" style="word-break:break-all">' + esc(j.command) + '</td>' +
+      '<td class="muted">' + esc(j.comment || '') + '</td>' +
+      '<td><input type="checkbox" onchange="window._cronJobs[' + i + '].enabled=this.checked; cronSave()"' +
+      (j.enabled ? ' checked' : '') + '></td>' +
+      '<td><div class="actions-cell">' +
+      '<button class="btn sm" title="Журнал запусков" onclick="cronLogDlg(' + i + ')">' + icon('file',13) + '</button>' +
+      '<button class="btn sm" title="Запустить прямо сейчас — проверить, что команда работает" onclick="cronRun(' + i + ')">' + icon('play',13) + '</button>' +
+      '<button class="btn sm" title="Изменить" onclick="cronDlg(' + i + ')">' + icon('edit',13) + '</button>' +
+      '<button class="btn sm icon danger" title="Удалить" onclick="cronDel(' + i + ')">' + icon('trash',13) + '</button></div></td></tr>').join('') +
+    '</tbody></table></div></div>'
+    :
+    '<div class="card" style="text-align:center;padding:46px 20px">' +
+    '<div class="empty" style="padding:0 0 12px">Задач пока нет.<br>' +
+    'Например: раз в сутки сохранять копию базы или раз в час удалять временные файлы.</div>' +
+    '<button class="btn primary" onclick="cronDlg(-1)">' + icon('plus',15) + ' Добавить первую задачу</button></div>') +
+    (d.system_jobs && d.system_jobs.length ?
+      '<div class="card"><div class="card-h"><span class="card-t">Служебные задания</span><span class="card-spacer"></span>' +
+      '<span class="pill gray">созданы панелью и её службами</span></div>' +
+      '<div class="logbox" style="max-height:180px">' + esc(d.system_jobs.join('\n')) + '</div></div>' : '');
+}
+
+function cronDlg(idx){
+  let j = idx >= 0 ? {...window._cronJobs[idx]} :
+    {expr:'0 3 * * *', command:'', comment:'', enabled:true};
+  if (window._cronState && window._cronState.idx === idx) {
+    j.expr = window._cronState.expr;
+    j.command = window._cronState.command;
+    j.comment = window._cronState.comment;
+    window._cronState = null;
+  }
+  window._cronIdx = idx;
+  const presets = CRON_PRESETS.map(p =>
+    '<button class="btn sm" type="button" data-cron="' + esc(p[0]) + '" onclick="this.closest(\'.modal-b\').querySelector(\'#cr-expr\').value=this.dataset.cron; cronHint()">' +
+    esc(p[1]) + '</button>').join('');
+  modal(idx >= 0 ? 'Изменить задачу' : 'Новая задача',
+    '<div class="field"><label>Когда запускать — выберите интервал</label>' +
+    '<div class="chips" style="margin:0 0 10px">' + presets + '</div>' +
+    '<input type="text" id="cr-expr" class="mono" value="' + esc(j.expr) +
+    '" oninput="cronHint(); cronDlgRemember()" placeholder="0 3 * * *">' +
+    '<div class="faint" id="cr-human" style="font-size:12px;margin-top:5px"></div></div>' +
+    '<div class="field"><label>Команда</label>' +
+    '<div class="row" style="flex-wrap:nowrap">' +
+    '<input type="text" id="cr-cmd" class="mono" value="' + esc(j.command) +
+    '" placeholder="/var/www/mysite.ru/script.php" style="flex:1" oninput="cronDlgRemember()">' +
+    '<button class="btn" type="button" title="Найти файл на сервере" onclick="cronFileDlg()">' +
+    icon('folder',14) + '</button></div>' +
+    '<div class="row" style="margin-top:8px"><select id="cr-site" style="flex:1" onchange="cronSiteInsert()">' +
+    '<option value="">— вставить путь к сайту —</option></select></div>' +
+    '<div class="faint" style="font-size:11.5px;margin-top:5px">Выберите сайт — его путь подставится в команду, ' +
+    'допишите дальше путь до скрипта, например: <span class="mono">/var/www/mysite.ru/cron/job.php</span></div></div>' +
+    '<div class="field"><label>Описание (для себя)</label>' +
+    '<input type="text" id="cr-cmt" value="' + esc(j.comment || '') +
+    '" placeholder="например, ночной бэкап базы" oninput="cronDlgRemember()"></div>',
+    '<button class="btn primary" onclick="cronDlgSave()">Сохранить</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+  cronHint();
+  api('/api/sites').then(d => {
+    const sel = document.getElementById('cr-site');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— вставить путь к сайту —</option>' +
+      d.sites.map(s => '<option value="' + esc(s.docroot) + '">' + esc(s.domain) + '</option>').join('');
+  }).catch(() => {});
+}
+function cronDlgRemember(){
+  const g = id => { const el = document.getElementById(id); return el ? el.value : null; };
+  if (document.getElementById('cr-cmd') && window._cronIdx != null)
+    window._cronState = {idx: window._cronIdx,
+      expr: g('cr-expr') || '', command: g('cr-cmd') || '',
+      comment: g('cr-cmt') || ''};
+}
+function cronHint(){
+  const el = document.getElementById('cr-human');
+  if (!el) return;
+  const h = cronHuman($('#cr-expr').value);
+  el.textContent = h ? 'Это значит: ' + h
+    : 'Формат cron: минуты часы день-месяца месяц день-недели — 5 полей через пробел';
+}
+function cronSiteInsert(){
+  const sel = document.getElementById('cr-site');
+  if (!sel) return;
+  if (sel.value) {
+    insertAtCursor('cr-cmd', sel.value);
+    cronDlgRemember();
+  }
+  sel.value = '';
+}
+function insertAtCursor(id, text){
+  const inp = document.getElementById(id);
+  if (!inp) return;
+  const s = inp.selectionStart == null ? inp.value.length : inp.selectionStart;
+  const e = inp.selectionEnd == null ? s : inp.selectionEnd;
+  inp.value = inp.value.slice(0, s) + text + inp.value.slice(e);
+  inp.focus();
+  inp.setSelectionRange(s + text.length, s + text.length);
+}
+
+/* помощник выбора файла: браузер по серверу с фильтром */
+async function cronFileDlg(){
+  cronDlgRemember();
+  window._fpTarget = 'cr-cmd';
+  const siteSel = document.getElementById('cr-site');
+  const sites = siteSel ? Array.from(siteSel.options).filter(o => o.value) : [];
+  let start = sites.length === 1 ? sites[0].value : '/var/www';
+  window._fp = {path: start};
+  modal('Найти файл',
+    '<div class="bread" id="fp-bread"></div>' +
+    '<div class="row" style="margin:8px 0">' +
+    '<input type="text" id="fp-filter" placeholder="фильтр: часть имени файла…" style="flex:1" oninput="fpRender()">' +
+    '<button class="btn" type="button" title="Вставить в команду путь к текущей папке" ' +
+    'onclick="fpPick(window._fp.path)">Выбрать папку</button></div>' +
+    '<div id="fp-list" style="max-height:44vh;overflow:auto"></div>',
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+  fpGo(start);
+}
+async function fpGo(p){
+  const box = document.getElementById('fp-list');
+  if (!box) return;
+  box.innerHTML = '<div class="empty">Загрузка…</div>';
+  window._fp.path = p;
+  let d;
+  try { d = await api('/api/files?path=' + encodeURIComponent(p)); }
+  catch(e){ box.innerHTML = '<div class="empty">' + esc(e.message || 'папка недоступна') + '</div>'; return; }
+  window._fpData = d;
+  fpRender();
+}
+function fpRender(){
+  const d = window._fpData, box = document.getElementById('fp-list');
+  if (!d || !box) return;
+  const fEl = document.getElementById('fp-filter');
+  const f = (fEl ? fEl.value : '').toLowerCase();
+  const items = d.items.filter(x => x.name.toLowerCase().includes(f));
+  const parts = d.path.split('/').filter(Boolean);
+  const crumbs = [];
+  let acc = '';
+  parts.forEach(p => { acc += '/' + p; crumbs.push([p, acc]); });
+  window._fpCrumbs = crumbs;
+  document.getElementById('fp-bread').innerHTML =
+    '<button onclick="fpGo(\'/\')">корень</button>' +
+    crumbs.map((c, i) =>
+      '<span class="sep">/</span><button onclick="fpIdxCrumb(' + i + ')">' + esc(c[0]) + '</button>'
+    ).join('');
+  window._fpItems = items.map(it => (d.path === '/' ? '' : d.path) + '/' + it.name);
+  box.innerHTML = items.length ?
+    '<div class="twrap"><table><tbody>' +
+    items.map((it, i) => {
+      if (it.type === 'dir')
+        return '<tr><td style="cursor:pointer" onclick="fpIdx(' + i + ')">' +
+          icon('folder',15) + ' <b>' + esc(it.name) + '</b></td><td style="width:96px"></td></tr>';
+      return '<tr><td>' + icon('file',15) + ' ' + esc(it.name) + '</td>' +
+        '<td style="width:96px"><button class="btn sm" onclick="fpPickIdx(' + i + ')">Выбрать</button></td></tr>';
+    }).join('') + '</tbody></table></div>'
+    : '<div class="empty">Папка пуста или фильтр ничего не нашёл</div>';
+}
+function fpIdxCrumb(i){ fpGo(window._fpCrumbs[i][1]); }
+function fpIdx(i){ fpGo(window._fpItems[i]); }
+function fpPickIdx(i){ fpPick(window._fpItems[i]); }
+function fpPick(p){
+  if (window._cronState) {
+    const cmd = window._cronState.command || '';
+    if (cmd && !cmd.endsWith(' ') && !cmd.endsWith(p)) p = ' ' + p;
+    window._cronState.command = cmd.endsWith(p) ? cmd : cmd + p;
+    const idx = window._cronState.idx;
+    closeModal();
+    cronDlg(idx);
+    toast('Путь вставлен — допишите команду');
+    return;
+  }
+  insertAtCursor(window._fpTarget || 'cr-cmd', p);
+  closeModal();
+  toast('Путь вставлен — допишите команду');
+}
+
+async function cronDlgSave(){
+  const expr = $('#cr-expr').value.trim(), cmd = $('#cr-cmd').value.trim();
+  if (expr.split(/\s+/).length !== 5) {
+    toast('В расписании должно быть 5 полей через пробел, например: 0 3 * * *', 'warn');
+    return;
+  }
+  if (!cmd) { toast('Укажите команду — что именно запускать', 'warn'); return; }
+  const j = {expr, command: cmd, comment: $('#cr-cmt').value.trim(), enabled: true};
+  if (window._cronIdx >= 0) window._cronJobs[window._cronIdx] = j;
+  else window._cronJobs.push(j);
+  await cronSave(); closeModal();
+  go('cron');
+}
+function cronDel(i){
+  const j = window._cronJobs[i] || {};
+  const name = j.comment || (j.command || '').slice(0, 40);
+  confirmDlg('Удалить задачу?',
+    'Задача «' + esc(name) + '» больше не будет запускаться по расписанию.',
+    async () => {
+      window._cronJobs.splice(i, 1);
+      await cronSave();
+      go('cron');
+      toast('Задача удалена');
+    });
+}
+function cronLogDlg(i){
+  const j = window._cronJobs[i] || {};
+  const title = j.comment || (j.command || '').slice(0, 40);
+  modal('Журнал: ' + esc(title),
+    '<div class="empty">Загрузка…</div>',
+    '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+  api('/api/cron/log?command=' + encodeURIComponent(j.command || ''))
+    .then(d => {
+      const box = document.querySelector('#modal .modal-b');
+      if (!box) return;
+      box.innerHTML = d.lines && d.lines.length
+        ? '<div class="logbox" style="max-height:56vh">' +
+          esc(d.lines.join('\n')) + '</div>'
+        : '<div class="empty">Задача ещё не запускалась — журнал пуст.<br>' +
+          'Нажмите «Запустить сейчас», чтобы проверить её и увидеть вывод.</div>';
+    })
+    .catch(e => toastErr(e));
+}
+
+async function cronRun(i){
+  const j = window._cronJobs[i] || {};
+  modal('Запуск: ' + esc((j.comment || j.command || '').slice(0, 60)),
+    '<div class="empty" id="cron-run-out">Выполняется…</div>',
+    '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+  try {
+    const r = await api('/api/cron/run', {method:'POST', body:{index:i}});
+    const box = document.getElementById('cron-run-out');
+    if (!box) return;
+    box.className = r.code === 0 ? 'notice ok' : 'notice err';
+    box.innerHTML = (r.code === 0
+      ? '<b>Команда выполнена успешно.</b>'
+      : '<b>Команда завершилась с кодом ' + r.code + '.</b>') +
+      (r.output ? '<div class="logbox" style="margin-top:10px;max-height:300px">' + esc(r.output) + '</div>'
+                : '<div class="faint" style="margin-top:6px">Вывода нет — команда отработала молча.</div>');
+  } catch(e){ toastErr(e); }
+}
+async function cronSave(){
+  try { const r = await api('/api/cron/save', {method:'POST', body:{
+    jobs: window._cronJobs,
+    auto: $('#cron-auto') ? $('#cron-auto').checked : undefined,
+    auto_cron: $('#cron-auto-expr') ? $('#cron-auto-expr').value : undefined,
+    ssl_auto: $('#cron-ssl') ? $('#cron-ssl').checked : undefined,
+    ssl_auto_cron: $('#cron-ssl-expr') ? $('#cron-ssl-expr').value : undefined}});
+    toast(esc(r.message)); } catch(e){ toastErr(e); }
+}
+
+/* ---------- брандмауэр ---------- */
+async function pgFirewall(c){
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let d;
+  try { d = await api('/api/firewall'); } catch(e){ c.innerHTML=''; toastErr(e); return; }
+  c.innerHTML =
+    '<div class="toolbar"><span class="pill ' + (d.active?'ok':'warn') + '"><span class="dot"></span>' +
+    (d.active?'активен':'неактивен') + '</span><span class="muted">backend: ' + esc(d.backend) + '</span>' +
+    '<span class="spacer"></span><button class="btn primary" onclick="fwAddDlg()">' + icon('plus',15) + ' Правило</button></div>' +
+    '<div class="card" style="padding:6px 10px"><div class="twrap"><table>' +
+    '<thead><tr><th>Порт</th><th>Действие</th><th>Источник</th><th>Комментарий</th></tr></thead><tbody>' +
+    d.rules.map(r => '<tr><td class="mono">' + esc(r.port) + '</td>' +
+      '<td><span class="pill ' + (String(r.action).indexOf('allow')>=0||r.action==='ALLOW'?'ok':'err') + '">' +
+      (String(r.action).indexOf('allow')>=0||r.action==='ALLOW'?'разрешено':'запрещено') + '</span></td>' +
+      '<td class="muted">' + esc(r.from) + '</td><td class="muted">' + esc(r.comment||'') + '</td></tr>').join('') +
+    '</tbody></table>' + (d.rules.length?'':'<div class="empty">правил нет</div>') + '</div></div>' +
+    (d.banned && d.banned.length ? '<div class="card"><div class="card-h"><span class="card-t">Заблокированные IP (fail2ban)</span></div>' +
+      d.banned.map(ip => '<span class="pill err mono" style="margin:3px">' + esc(ip) + '</span>').join('') + '</div>' : '');
+}
+function fwAddDlg(){
+  modal('Новое правило',
+    '<div class="row"><div class="field" style="flex:1"><label>Порт</label><input type="text" id="fw-port" placeholder="8080"></div>' +
+    '<div class="field" style="flex:1"><label>Действие</label><select id="fw-act"><option value="allow">разрешить</option><option value="deny">запретить</option></select></div></div>',
+    '<button class="btn primary" onclick="fwAdd()">Добавить</button><button class="btn" onclick="closeModal()">Отмена</button>');
+}
+async function fwAdd(){
+  try { const r = await api('/api/firewall/add', {method:'POST', body:{
+      port: $('#fw-port').value.trim(), action: $('#fw-act').value}});
+    toast(esc(r.message)); closeModal(); go('firewall'); } catch(e){ toastErr(e); }
+}
+
+/* ---------- пакеты и обновления ---------- */
+async function pgPackages(c){
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let d;
+  try { d = await api('/api/packages'); } catch(e){ c.innerHTML=''; toastErr(e); return; }
+  // версии PHP грузим ДО отрисовки — иначе селект «Установки PHP-модулей»
+  // рисуется пустым и заполняется только при удачном догружении
+  try { const php = await api('/api/php'); window._phpVersionsCache = php.versions; }
+  catch(e){ if (!window._phpVersionsCache) window._phpVersionsCache = {}; }
+  const phpOpts = Object.keys(window._phpVersionsCache||{}).sort().reverse()
+    .map(v => '<option value="' + esc(v) + '">PHP ' + esc(v) + '</option>').join('');
+  const kinds = {};
+  (d.upgradable||[]).forEach(u => { kinds[u.kind] = kinds[u.kind] || []; kinds[u.kind].push(u); });
+  c.innerHTML =
+    '<div class="toolbar"><button class="btn" onclick="aptUpdate()">' + icon('refresh',15) + ' Обновить индексы apt</button>' +
+    '<span class="spacer"></span><span class="muted" style="font-size:13px">Доступно обновлений: ' + (d.upgradable||[]).length + '</span></div>' +
+    '<div id="pkg-task"></div>' +
+    (d.apt_updated ? '<div class="notice info">Индексы apt обновлялись: ' + esc(fmtDate(d.apt_updated)) + '</div>' : '') +
+    Object.keys(kinds).map(kind =>
+      '<div class="card" style="padding:6px 10px;margin-bottom:12px"><div class="card-h" style="padding:10px 6px 0">' +
+      '<span class="card-t">' + esc(kind) + '</span><span class="card-spacer"></span>' +
+      '<button class="btn sm primary" onclick="pkgUpgradeKind(\'' + esc(kind) + '\')">обновить все ' + esc(kind) + '</button></div>' +
+      '<div class="twrap"><table><thead><tr><th><input type="checkbox" onclick="pkgToggleKind(\'' + esc(kind) + '\', this.checked)" checked></th>' +
+      '<th>Пакет</th><th>Текущая</th><th>Новая</th></tr></thead><tbody>' +
+      kinds[kind].map(u => '<tr class="pkg-row" data-kind="' + esc(kind) + '"><td><input type="checkbox" class="pkg-chk" value="' + esc(u.pkg) + '" checked></td>' +
+        '<td class="mono">' + esc(u.pkg) + '</td><td class="mono muted">' + esc(u.cur||'—') + '</td>' +
+        '<td class="mono">' + esc(u.new||'—') + '</td></tr>').join('') +
+      '</tbody></table></div></div>').join('') +
+    ((d.upgradable||[]).length ? '' : '<div class="empty">Всё актуально — обновлений нет.</div>') +
+    '<div class="card"><div class="card-h"><span class="card-t">Установка PHP-модулей</span></div>' +
+    '<div class="row"><div style="flex:1"><select id="pkg-php-ver">' +
+    (phpOpts || '<option value="">PHP не обнаружен</option>') + '</select></div>' +
+    '<button class="btn" onclick="openPhpModules()">Выбрать модули…</button></div>' +
+    '<div class="muted" style="font-size:12.5px;margin-top:8px">Модули ставятся из репозитория apt (phpX.Y-имя) и сразу подключаются к FPM.</div></div>';
+  pkgTaskPoll();
+}
+function pkgToggleKind(kind, checked){
+  document.querySelectorAll('.pkg-row[data-kind="' + kind + '"] .pkg-chk')
+    .forEach(ch => ch.checked = checked);
+}
+function pkgUpgradeKind(kind){
+  const names = Array.from(document.querySelectorAll(
+    '.pkg-row[data-kind="' + kind + '"] .pkg-chk:checked')).map(ch => ch.value);
+  if (!names.length) { toast('ничего не выбрано', 'warn'); return; }
+  confirmDlg('Обновить пакеты', 'Обновить <b>' + names.length + '</b> пакет(ов) ' + esc(kind) + '?',
+    async () => { try { const r = await api('/api/packages/upgrade', {method:'POST', body:{names}});
+      toast(esc(r.message)); pkgTaskPoll(); } catch(e){ toastErr(e); } });
+}
+async function aptUpdate(){
+  try { const r = await api('/api/packages/update_index', {method:'POST', body:{}});
+    toast(esc(r.message)); pkgTaskPoll(); } catch(e){ toastErr(e); }
+}
+async function pkgTaskPoll(){
+  try {
+    const d = await api('/api/packages/task');
+    const el = document.getElementById('pkg-task');
+    if (!el) return;
+    if (d.running) {
+      el.innerHTML = '<div class="notice info"><b>Выполняется:</b> ' + esc(d.kind) +
+        ' <span class="dot pulse"></span><div class="logbox" style="margin-top:8px;max-height:150px">' +
+        esc((d.log||[]).join('\n')) + '</div></div>';
+      setTimeout(pkgTaskPoll, 2000);
+    } else {
+      el.innerHTML = taskHistoryHtml(d);
+    }
+  } catch(e){}
+}
+function taskHistoryHtml(d){
+  const h = d.history || [];
+  if (!h.length) return '';
+  const rows = h.slice(0, 12).map(x =>
+    '<div class="row" style="align-items:center;gap:8px;padding:3px 0">' +
+    '<span class="pill ' + (x.ok ? 'ok' : 'err') + '">' + (x.ok ? 'ок' : 'ошибка') + '</span>' +
+    '<span class="faint" style="width:110px">' + esc((x.finished || '').slice(0, 16)) + '</span>' +
+    '<span style="flex:1">' + esc(x.kind) + (x.error ? ' — ' + esc(x.error) : '') + '</span></div>').join('');
+  return '<div class="card" style="margin-top:12px"><div class="card-h">' +
+    '<span class="card-t">Последние операции</span><span class="card-spacer"></span>' +
+    '<span class="pill gray">' + h.length + '</span></div>' + rows + '</div>';
+}
+async function openPhpModules(){
+  // из контекста модала сайта или со страницы пакетов
+  const version = document.getElementById('pkg-php-ver') ?
+      document.getElementById('pkg-php-ver').value :
+    (($('#st-php')) ? $('#st-php').value : '');
+  if (!version) { toast('выберите версию PHP', 'warn'); return; }
+  let d;
+  try { d = await api('/api/php/modules?version=' + encodeURIComponent(version)); }
+  catch(e){ toastErr(e); return; }
+  const installed = new Set(d.installed || []);
+  const names = window._phpModNames || {};
+  modal('PHP-модули для ' + esc(version),
+    '<div class="notice info">Установленные модули отмечены галочкой и недоступны. Новые ставятся через apt в фоне.</div>' +
+    '<div style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:10px">' +
+    (d.available||[]).map(m =>
+      '<label class="check" style="margin:4px 0' + (installed.has(m) ? ';opacity:.5' : '') + '">' +
+      '<input type="checkbox" class="php-mod" value="' + esc(m) + '"' + (installed.has(m) ? ' disabled' : '') + '> ' +
+      esc(m) + (names[m] ? ' <span class="faint">— ' + esc(names[m]) + '</span>' : '') +
+      (installed.has(m) ? ' <span class="pill ok" style="margin-left:auto">установлен</span>' : '') + '</label>').join('') +
+    '</div>',
+    '<button class="btn primary" onclick="installPhpModules(\'' + esc(version) + '\')">' + icon('down',15) + ' Установить выбранные</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+  // подтягиваем описания модулей
+  try {
+    const php = await api('/api/php');
+    window._phpModNames = php.module_names || {};
+  } catch(e){}
+}
+async function installPhpModules(version){
+  const mods = Array.from(document.querySelectorAll('.php-mod:checked')).map(c => c.value);
+  if (!mods.length) { toast('ничего не выбрано', 'warn'); return; }
+  confirmDlg('Установить модули', 'Установить <b>' + mods.length + '</b> PHP-модуль(ей) для PHP ' + esc(version) + ' через apt?',
+    async () => {
+      closeModal();
+      for (const m of mods) {
+        try { await api('/api/php/install_module', {method:'POST', body:{version, module: m}}); }
+        catch(e){ toastErr(e); }
+      }
+      toast('установка запущена (' + mods.length + ' модулей)');
+      if (PAGE === 'packages') pkgTaskPoll();
+    });
+}
+
+/* ---------- настройки ---------- */
+async function pgSettings(c){
+  let d, log, sess, totp;
+  try {
+    d = await api('/api/settings');
+    [log, sess, totp] = await Promise.all([
+      api('/api/panellog').then(x => x.log),
+      api('/api/sessions').catch(() => null),
+      api('/api/totp/status').catch(() => null)]);
+  } catch(e){ c.innerHTML=''; toastErr(e); return; }
+  const s = d.settings;
+  const n = s.notify || {email: {}, tg: {}};
+  setTimeout(notifyToggleBodies, 0);
+  c.innerHTML =
+    '<div class="split">' +
+    '<div><div class="card"><div class="card-h"><span class="card-t">Панель</span></div>' +
+    '<div class="kv"><b>Версия</b><span>' + ME.version + '</span>' +
+    '<b>Режим</b><span>' + (ME.demo ? 'демо (изменения не влияют на систему)' : 'рабочий') + '</span>' +
+    '<b>Домашняя папка</b><span class="mono">' + esc(ME.home) + '</span>' +
+    '<b>Корень сайтов</b><span class="mono">' + esc(ME.www_root) + '</span></div>' +
+    '<label style="margin-top:12px">Тема интерфейса</label><select id="set-theme" onchange="saveTheme()">' +
+    '<option value="dark"' + (s.theme==='dark'?' selected':'') + '>тёмная</option>' +
+    '<option value="light"' + (s.theme==='light'?' selected':'') + '>светлая</option></select>' +
+    '<label>Хранить резервных копий (шт.)</label><input type="number" id="set-ret" value="' + esc(s.backup_retention) + '">' +
+    '<label>Порт панели (после смены перезапустите)</label><input type="number" id="set-port" value="' + esc(s.panel_port) + '">' +
+    '<label>Интервал проверок живучести, сек (15–3600)</label><input type="number" id="set-health" value="' + esc(s.health_interval||60) + '">' +
+    '<label class="check"><input type="checkbox" id="set-fm"' + (s.fm_restricted!==false?' checked':'') + '> Ограничить файловый менеджер (/var/www, /etc/…, папка панели)</label>' +
+    '<label class="check"><input type="checkbox" id="set-expert"' + (ME.expert?' checked':'') + '> Режим «Эксперт» — показывать командную строку, SQL-консоль и редакторы конфигов</label>' +
+    '<label class="check"><input type="checkbox" id="set-weekly"' + (s.weekly_report_enabled?' checked':'') + '> Еженедельный отчёт (понедельник 09:00, на e-mail/TG)</label>' +
+    '<label class="check"><input type="checkbox" id="set-status"' + (s.public_status?' checked':'') + '> Публичная страница <span class="mono">/status</span> для внешних мониторингов (JSON без секретов)</label>' +
+    '<div class="faint" style="font-size:11.5px;margin-top:4px">По умолчанию включён «Простой» режим: скрыты инструменты для опытных, интерфейс короче.</div>' +
+    '<button class="btn primary" style="margin-top:12px" onclick="settingsSave()">' + icon('check',15) + ' Сохранить</button></div>' +
+    notifyCard(n) +
+    '<div class="card"><div class="card-h"><span class="card-t">Журнал панели (аудит)</span></div>' +
+    '<div class="logbox" style="max-height:260px">' + esc((log||[]).map(l => l.ts + '  ' + l.text).join('\n')) + '</div></div></div>' +
+    '<div><div class="card"><div class="card-h"><span class="card-t">Смена пароля администратора</span></div>' +
+    '<div class="field"><label>Текущий пароль</label><input type="password" id="pw-old" autocomplete="current-password"></div>' +
+    pwField('pw-new', {label:'Новый пароль',
+      hint:'Минимум 8 символов. Нажмите кнопку генерации — надёжный пароль создастся сам, скопируйте его.'}) +
+    '<button class="btn primary" style="margin-top:10px" onclick="changePass()">Сменить пароль</button></div>' +
+    securityCard(totp, sess) + migrateCard() +
+    '<div class="card"><div class="card-h"><span class="card-t">Перезагрузка сервера</span></div>' +
+    '<div style="font-size:13px;line-height:1.6;color:var(--muted)">Полная перезагрузка сервера: панель и сайты будут недоступны 1–2 минуты.</div>' +
+    '<button class="btn danger" style="margin-top:10px" onclick="serverRebootDlg()">' + icon('refresh',15) + ' Перезагрузить сервер</button></div>' +
+    '<div class="card" id="disk-card"><div class="card-h"><span class="card-t">Диск: куда уходит место</span></div>' +
+    '<div class="empty">Загрузка…</div></div>' +
+    '<div class="card"><div class="card-h"><span class="card-t">Как это работает</span></div>' +
+    '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' +
+    'Рабочий режим: панель запускается от root (обычно как systemd-служба hostpanel) и управляет nginx, Apache, PHP-FPM, systemd, certbot и MySQL напрямую. ' +
+    'Все изменения конфигов валидируются (nginx -t и т.п.) и откатываются при ошибке, каждая операция пишется в журнал аудита.<br><br>' +
+    'Демо-режим: полностью безопасен, конфиги не трогаются, а сайты, логи и статистика создаются в домашней папке панели.</div></div></div></div>';
+  loadDiskCard();
+}
+/* ---------- диск: куда уходит место ---------- */
+async function loadDiskCard(){
+  const el = document.getElementById('disk-card');
+  if (!el) return;
+  let d;
+  try { d = await api('/api/disk'); } catch(e){ el.innerHTML = ''; return; }
+  if (d.demo) {
+    el.innerHTML = '<div class="card-h"><span class="card-t">Диск</span></div>' +
+      '<div class="notice info">демо-данные — на рабочем сервере здесь будет разбор занятого места</div>';
+    return;
+  }
+  const rows = (d.top || []).map(t =>
+    '<div class="row" style="align-items:center;gap:10px;padding:3px 0">' +
+    '<span style="width:200px" title="' + esc(t.path) + '">' + esc(t.label) + '</span>' +
+    '<b style="width:90px;text-align:right">' + t.gb + ' ГБ</b>' +
+    '<span class="muted faint" style="font-size:11.5px">' + esc(t.path) + '</span></div>').join('');
+  const btn = (w, label) => (d.cleanable && d.cleanable[w]) ?
+    '<button class="btn sm" onclick="diskClean(\'' + w + '\')">' + label + '</button>' : '';
+  el.innerHTML = '<div class="card-h"><span class="card-t">Диск</span>' +
+    '<span class="card-spacer"></span>' +
+    '<span class="pill ' + (d.percent > 85 ? 'err' : d.percent > 70 ? 'warn' : 'ok') +
+    '">занято ' + d.percent + '% · ' + d.used_gb + ' из ' + d.total_gb + ' ГБ</span></div>' +
+    '<div style="padding:6px 8px">' + rows + '</div>' +
+    '<div class="row" style="padding:0 8px 10px;flex-wrap:wrap;gap:6px">' +
+    btn('apt', 'Очистить кэш apt') + btn('journal', 'Урезать журнал (7 дней)') +
+    btn('tmp', 'Очистить tmp панели') + btn('backups', 'Удалить старые копии') + '</div>';
+}
+async function diskClean(what){
+  const names = {apt: 'кэш apt', journal: 'журнал systemd (оставить 7 дней)',
+    tmp: 'временные файлы панели', backups: 'старые резервные копии (остать последние 3)'};
+  confirmDlg('Очистить: ' + (names[what] || what),
+    'Выполнить очистку «' + (names[what] || what) + '»?', async () => {
+    try {
+      const r = await api('/api/disk/clean', {method:'POST', body:{what}});
+      toast(esc(r.message)); loadDiskCard();
+    } catch(e){ toastErr(e); }
+  }, false);
+}
+async function settingsSave(){
+  const expChanged = !!$('#set-expert') && $('#set-expert').checked !== !!ME.expert;
+  try { const r = await api('/api/settings/save', {method:'POST', body:{
+      theme: $('#set-theme').value, backup_retention: +$('#set-ret').value,
+      panel_port: +$('#set-port').value,
+      health_interval: +$('#set-health').value,
+      fm_restricted: $('#set-fm').checked,
+      expert_mode: $('#set-expert') ? $('#set-expert').checked : undefined,
+      weekly_report_enabled: $('#set-weekly') ? $('#set-weekly').checked : undefined,
+      public_status: $('#set-status') ? $('#set-status').checked : undefined,
+      notify: {security: {enabled: $('#nt-sec') ? $('#nt-sec').checked : undefined}}}});
+    toast(esc(r.message));
+    if (expChanged) { setTimeout(() => location.reload(), 700); } } catch(e){ toastErr(e); }
+}
+function saveTheme(){ settingsSave(); applyTheme($('#set-theme').value); }
+pwBindStrength('pw-new');
+async function changePass(){
+  try { const r = await api('/api/password/change', {method:'POST', body:{
+      old: $('#pw-old').value, new: $('#pw-new').value}});
+    $('#pw-old').value = ''; $('#pw-new').value = '';
+    window._defaultPw = false;
+    if (window.updateLoginHint) window.updateLoginHint();
+    toast('Пароль изменён'); } catch(e){ toastErr(e); }
+}
+
+/* ---------- уведомления: e-mail и Telegram ---------- */
+function notifyCard(n){
+  const e = n.email || {}, t = n.tg || {};
+  const inp = (id, label, val, type) =>
+    '<div class="field"><label>' + label + '</label>' +
+    '<input type="' + (type || 'text') + '" id="' + id + '" value="' + esc(val || '') + '"></div>';
+  return '<div class="card"><div class="card-h"><span class="card-t">Уведомления о проблемах</span></div>' +
+    '<div class="faint" style="font-size:12.5px;line-height:1.55;margin-bottom:6px">Панель сообщит на e-mail и в Telegram, ' +
+    'когда сайт перестанет отвечать, когда восстановится и по итогам каждого автобэкапа.</div>' +
+    '<label class="check"><input type="checkbox" id="nt-sec"' + ((n.security || {}).enabled ? ' checked' : '') +
+    ' onchange="window._ntSecChanged=this.checked"> ' +
+    'О безопасности: входы в панель и блокировки fail2ban (Telegram)</label>' +
+    '<label class="check"><input type="checkbox" id="nt-e-on"' + (e.enabled ? ' checked' : '') +
+    ' onchange="document.getElementById(\'nt-e-body\').style.display=this.checked?\'\':\'none\'"> ' +
+    'E-mail (письмо через SMTP)</label>' +
+    '<div id="nt-e-body" style="margin:4px 0 8px">' +
+    inp('nt-e-host', 'SMTP-сервер (например smtp.yandex.ru)', e.host) +
+    inp('nt-e-port', 'Порт (465 — SSL, 587 — STARTTLS)', e.port, 'number') +
+    inp('nt-e-user', 'Логин SMTP', e.user) +
+    inp('nt-e-pass', 'Пароль SMTP (или пароль приложения)', e.pass, 'password') +
+    inp('nt-e-from', 'От кого (адрес в письме)', e.from || e.user) +
+    inp('nt-e-to', 'Кому присылать уведомления', e.to) +
+    '</div>' +
+    '<label class="check"><input type="checkbox" id="nt-t-on"' + (t.enabled ? ' checked' : '') +
+    ' onchange="document.getElementById(\'nt-t-body\').style.display=this.checked?\'\':\'none\'"> ' +
+    'Telegram (бот)</label>' +
+    '<div id="nt-t-body" style="margin:4px 0 8px">' +
+    inp('nt-t-token', 'Токен бота (от @BotFather)', t.token) +
+    inp('nt-t-chat', 'Chat ID (узнать у @userinfobot)', t.chat) +
+    '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+    '<button class="btn primary" onclick="notifySave()">' + icon('check',15) + ' Сохранить</button>' +
+    '<button class="btn" onclick="notifyTest()">' + icon('bell',15) + ' Отправить тест</button></div>' +
+    '<div class="faint" style="font-size:12px;margin-top:6px">Тест отправит сообщение во все включённые каналы — удобно проверить настройки до сбоя.</div></div>';
+}
+function notifyToggleBodies(){
+  const e = document.getElementById('nt-e-on'), t = document.getElementById('nt-t-on');
+  if (e) document.getElementById('nt-e-body').style.display = e.checked ? '' : 'none';
+  if (t) document.getElementById('nt-t-body').style.display = t.checked ? '' : 'none';
+}
+async function notifySave(){
+  try {
+    const r = await api('/api/settings/save', {method:'POST', body:{notify:{
+      email: {enabled: $('#nt-e-on').checked, host: $('#nt-e-host').value,
+        port: +$('#nt-e-port').value || 587, user: $('#nt-e-user').value,
+        pass: $('#nt-e-pass').value, from: $('#nt-e-from').value,
+        to: $('#nt-e-to').value},
+      tg: {enabled: $('#nt-t-on').checked, token: $('#nt-t-token').value,
+        chat: $('#nt-t-chat').value}}}});
+    toast(esc(r.message));
+  } catch(e){ toastErr(e); }
+}
+async function notifyTest(){
+  try {
+    await notifySave();
+    const r = await api('/api/notify/test', {method:'POST', body:{}});
+    toast(esc(r.message));
+  } catch(e){ toastErr(e); }
+}
+
+/* ---------- безопасность: 2FA и активные сессии ---------- */
+function shortUa(ua){
+  const m = (ua || '').match(/(Edg|Chrome|Firefox|Safari|OPR)\/[\d.]+/);
+  if (m) return m[0];
+  if (/python|curl|wget/i.test(ua || '')) return (ua || '').slice(0, 40);
+  return (ua || '').slice(0, 44) || 'неизвестное устройство';
+}
+function securityCard(totp, sess){
+  const on = !!(totp && totp.enabled);
+  const cur = sess ? sess.current : '';
+  const rows = ((sess && sess.sessions) || []).map(x => {
+    const mine = x.sid === cur;
+    const t = new Date((x.seen || 0) * 1000);
+    const when = isNaN(t) ? '' : t.toLocaleString('ru-RU',
+      {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
+    return '<div class="row" style="align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--border)">' +
+      '<div style="flex:1;min-width:0"><b>' + esc(shortUa(x.ua)) + '</b>' +
+      '<div class="muted" style="font-size:12px">' + esc(x.ip || '') +
+      (when ? ' · активность ' + esc(when) : '') + '</div></div>' +
+      (mine ? '<span class="pill ok">это вы</span>'
+            : '<button class="btn sm" onclick="sessionDrop(\'' + esc(x.sid) + '\')">Завершить</button>') +
+      '</div>';
+  }).join('');
+  return '<div class="card"><div class="card-h"><span class="card-t">Безопасность входа</span></div>' +
+    '<div class="row" style="align-items:center;gap:10px;padding:2px 0 8px">' +
+    '<span class="muted" style="font-size:13px">Двухфакторная аутентификация (приложение-аутентификатор)</span>' +
+    (on ? '<span class="pill ok">включена</span>'
+        : '<span class="pill warn">выключена</span>') +
+    (on
+      ? '<button class="btn sm" onclick="totpDisableDlg()">Выключить</button>'
+      : '<button class="btn sm primary" onclick="totpEnableDlg()">Включить</button>') + '</div>' +
+    '<div class="faint" style="font-size:12px;line-height:1.55;margin-bottom:6px">Второй шаг защиты: ' +
+    'кроме пароля нужен код из приложения (Google Authenticator, Яндекс.Ключ и т.п.). ' +
+    'Панель доступна из интернета — с 2FA украденный пароль не даст войти.</div>' +
+    '<b style="font-size:13px">Активные сессии</b>' +
+    (rows || '<div class="empty">Нет активных сессий</div>') +
+    '<div style="margin-top:8px"><button class="btn" onclick="dropOtherSessions()">' +
+    icon('logout',14) + ' Выйти на всех других устройствах</button></div></div>';
+}
+async function sessionDrop(sid){
+  try { const r = await api('/api/sessions/drop', {method:'POST', body:{sid}});
+    toast(esc(r.message)); go('settings'); } catch(e){ toastErr(e); }
+}
+async function dropOtherSessions(){
+  try {
+    const d = await api('/api/sessions');
+    const others = (d.sessions || []).filter(x => x.sid !== d.current);
+    for (const x of others)
+      await api('/api/sessions/drop', {method:'POST', body:{sid: x.sid}});
+    toast(others.length ? ('Завершено сессий: ' + others.length)
+                        : 'Других сессий нет');
+    go('settings');
+  } catch(e){ toastErr(e); }
+}
+function totpEnableDlg(){
+  api('/api/totp/setup').then(d => {
+    modal('Включить двухфакторную аутентификацию',
+      '<div class="faint" style="font-size:13px;line-height:1.6;margin-bottom:8px">' +
+      '1. Откройте приложение-аутентификатор и отсканируйте код (или введите ключ вручную).<br>' +
+      '2. Введите 6-значный код из приложения для подтверждения.</div>' +
+      '<div id="totp-qr" style="text-align:center;min-height:60px;background:#fff;border-radius:10px;padding:10px;margin-bottom:10px">' +
+      (d.qr ? '<div class="muted" style="color:#333">Создаём QR-код…</div>' : '') + '</div>' +
+      '<div class="field"><label>Ключ для ручного ввода</label>' +
+      '<div class="row" style="align-items:center;gap:8px"><b class="mono" style="flex:1;word-break:break-all">' +
+      esc(d.secret) + '</b>' +
+      '<button class="btn sm" data-v="' + esc(d.secret) + '" onclick="copyText(this.dataset.v, this)">' +
+      icon('copy',13) + '</button></div></div>' +
+      '<div class="field"><label>Код из приложения (6 цифр)</label>' +
+      '<input type="text" id="totp-code" class="mono" maxlength="6" inputmode="numeric" placeholder="123456" autocomplete="one-time-code"></div>',
+      '<button class="btn primary" onclick="totpConfirm(\'' + esc(d.secret) + '\')">' +
+      icon('check',15) + ' Включить</button>' +
+      '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+    if (d.qr) {
+      api('/api/totp/qr?uri=' + encodeURIComponent(d.uri)).then(q => {
+        const el = document.getElementById('totp-qr');
+        if (el) el.innerHTML = q.svg.replace('<svg', '<svg style="width:190px;height:190px"');
+      }).catch(() => {});
+    }
+    setTimeout(() => { const el = document.getElementById('totp-code'); if (el) el.focus(); }, 300);
+  }).catch(e => toastErr(e));
+}
+async function totpConfirm(secret){
+  try {
+    const r = await api('/api/totp/enable', {method:'POST', body:{
+      secret: secret, code: $('#totp-code').value}});
+    closeModal(); toast(esc(r.message)); go('settings');
+  } catch(e){ toastErr(e); }
+}
+function totpDisableDlg(){
+  modal('Выключить 2FA',
+    '<div class="notice warn">Без 2FA для входа хватит одного пароля — панель станет уязвимее.</div>' +
+    '<div class="field"><label>Подтвердите текущим паролем</label>' +
+    '<input type="password" id="totp-pw" autocomplete="current-password"></div>',
+    '<button class="btn danger" onclick="totpDisable()">Выключить</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+}
+async function totpDisable(){
+  try {
+    const r = await api('/api/totp/disable', {method:'POST', body:{
+      password: $('#totp-pw').value}});
+    closeModal(); toast(esc(r.message)); go('settings');
+  } catch(e){ toastErr(e); }
+}
+
+/* ---------- перенос настроек на другой сервер ---------- */
+function migrateCard(){
+  return '<div class="card"><div class="card-h"><span class="card-t">Перенос на другой сервер</span></div>' +
+    '<div class="faint" style="font-size:12.5px;line-height:1.6;margin-bottom:8px">Файл настроек содержит: ' +
+    'параметры панели, задачи планировщика, список сайтов (без файлов), ' +
+    'почтовые домены и адреса ящиков, настройки уведомлений. ' +
+    'Пароли баз и ящиков панель не хранит — их задаёте заново; SSL-сертификаты ' +
+    'выпустите на новом сервере. Файл содержит пароль SMTP и ключ 2FA — храните бережно.</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+    '<button class="btn primary" onclick="exportSettings()">' + icon('down',15) + ' Скачать настройки</button>' +
+    '<button class="btn" onclick="importDlg()">' + icon('up',15) + ' Импортировать из файла</button></div></div>';
+}
+async function exportSettings(){
+  try {
+    const d = await api('/api/settings/export');
+    const blob = new Blob([JSON.stringify(d.data, null, 2)],
+      {type: 'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'hostpanel-settings-' +
+      new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+    toast('Файл настроек скачан');
+  } catch(e){ toastErr(e); }
+}
+function importDlg(){
+  modal('Импорт настроек',
+    '<div class="notice info">Выберите файл, скачанный на старом сервере. ' +
+    'Настройки применятся, задачи заменятся, отсутствующие сайты будут созданы ' +
+    '(файлы и базы в них загрузите отдельно).</div>' +
+    '<div class="field"><label>Файл настроек (JSON)</label>' +
+    '<input type="file" id="imp-file" accept=".json,application/json"></div>' +
+    '<div id="imp-preview"></div>',
+    '<button class="btn primary" id="imp-go" style="display:none" onclick="importApply()">' +
+    icon('check',15) + ' Применить</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+  window._impData = null;
+  document.getElementById('imp-file').addEventListener('change', ev => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    if (f.size > 2 * 1024 * 1024) { toast('Файл больше 2 МБ — это не файл настроек', 'warn'); return; }
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const data = JSON.parse(String(rd.result));
+        if (data.panel !== 'HostPanel') throw new Error('это не экспорт HostPanel');
+        window._impData = data;
+        const sites = (data.sites || []).length;
+        const cron = (data.cron || []).length;
+        const mailD = ((data.mail || {}).domains || []).length;
+        document.getElementById('imp-preview').innerHTML =
+          '<div class="notice ok">Файл от ' + esc(data.exported || '?') +
+          ' (панель ' + esc(data.version || '?') + '): сайтов — ' + sites +
+          ', задач — ' + cron + ', почтовых доменов — ' + mailD + '</div>';
+        document.getElementById('imp-go').style.display = '';
+      } catch(e){ toast('Не удалось прочитать файл: ' + e.message, 'warn'); }
+    };
+    rd.readAsText(f);
+  });
+}
+async function importApply(){
+  if (!window._impData) return;
+  try {
+    const r = await api('/api/settings/import', {method:'POST',
+      body: {data: window._impData}});
+    const box = document.getElementById('imp-preview');
+    if (box) box.innerHTML = '<div class="notice ok">' + esc(r.summary || 'Готово') + '</div>' +
+      (r.report || []).map(x => '<div class="muted" style="font-size:12.5px">• ' + esc(x) + '</div>').join('');
+    document.getElementById('imp-go').style.display = 'none';
+    window._impData = null;
+    toast(esc(r.summary || 'Импорт выполнен'));
+  } catch(e){ toastErr(e); }
+}
+
+
+/* ---------- каталог ПО (установка служб как в ISPmanager) ---------- */
+const SW_ICONS = {nginx:'globe', apache:'server', php74:'code', php80:'code',
+  php81:'code', php82:'code', php83:'code', php84:'code', php85:'code',
+  composer:'pkg', mariadb:'db', postgresql:'db', redis:'zap', memcached:'zap',
+  postfix:'ext', dovecot:'archive', mailutils:'file',
+  certbot:'shield', fail2ban:'shield', nodejs:'code', git:'folder', unzip:'folder'};
+async function pgSoftware(c){
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let d;
+  try { d = await api('/api/software'); } catch(e){ c.innerHTML=''; toastErr(e); return; }
+  const groups = {};
+  (d.catalog||[]).forEach(s => { groups[s.group] = groups[s.group] || []; groups[s.group].push(s); });
+  c.innerHTML =
+    '<div class="toolbar"><span class="muted" style="font-size:13px">Установка и удаление служб сервера. ' +
+    'Операции идут в фоне — прогресс виден под списком.</span></div>' +
+    '<div id="pkg-task"></div>' +
+    '<div id="apps-block"></div>' +
+    Object.keys(groups).map(g =>
+      '<div class="card" style="padding:6px 10px;margin-bottom:12px">' +
+      '<div class="card-h" style="padding:10px 6px 0"><span class="card-t">'+esc(g)+'</span></div>' +
+      groups[g].map(swRow).join('') + '</div>').join('') +
+    '<div class="muted" style="font-size:12.5px">Перед удалением панель проверяет, не используют ли службу существующие сайты.</div>' +
+    '<div id="ioncube-block" style="margin-top:12px"><div class="empty">Загрузка ionCube…</div></div>';
+  swPoll();
+  loadIoncube();
+  appsLoad();
+}
+function swRow(s){
+  const pill = s.status === 'active' ? '<span class="pill ok">работает</span>'
+    : s.status === 'installed' ? '<span class="pill warn">установлен</span>'
+    : '<span class="pill gray">не установлен</span>';
+  const cfg = s.status !== 'missing' && SWSET_IDS[s.id]
+    ? '<button class="btn sm" onclick="swsetGo(\''+s.id+'\')">'+icon('gear',14)+' Настройки</button>' : '';
+  const btn = s.status === 'missing'
+    ? '<button class="btn sm primary" onclick="swInstall(\''+s.id+'\')">'+icon('down',14)+' Установить</button>'
+    : '<button class="btn sm" onclick="swRemove(\''+s.id+'\')">Удалить</button>';
+  return '<div class="row" style="align-items:center;padding:10px 6px;border-top:1px solid var(--border)">' +
+    '<span style="width:26px">'+icon(SW_ICONS[s.id]||'pkg',18)+'</span>' +
+    '<div style="flex:1;min-width:0"><b>'+esc(s.name)+'</b>' +
+    '<div class="muted" style="font-size:12.5px">'+esc(s.desc)+'</div></div>' +
+    pill + '<span style="width:10px"></span>' + cfg + '<span style="width:6px"></span>' + btn + '</div>';
+}
+let _swWasRunning = false;
+async function swPoll(){
+  try {
+    const d = await api('/api/packages/task');
+    const el = document.getElementById('pkg-task');
+    if (!el) return;
+    if (d.running) {
+      _swWasRunning = true;
+      el.innerHTML = '<div class="notice info"><b>Выполняется:</b> ' + esc(d.kind) +
+        ' <span class="dot pulse"></span><div class="logbox" style="margin-top:8px;max-height:180px">' +
+        esc((d.log||[]).join('\n')) + '</div></div>';
+      setTimeout(swPoll, 2000);
+    } else {
+      el.innerHTML = _swWasRunning ? taskHistoryHtml(d) : '';
+      if (_swWasRunning) { _swWasRunning = false; go('software'); }
+    }
+  } catch(e){}
+}
+async function swInstall(id){
+  confirmDlg('Установить службу',
+    'Установить <b>' + esc(swName(id)) + '</b> через apt? Операция выполнится в фоне.',
+    async () => { try { const r = await api('/api/software/install', {method:'POST', body:{name:id}});
+      toast(esc(r.message)); _swWasRunning = true; swPoll(); } catch(e){ toastErr(e); } });
+}
+async function swRemove(id){
+  confirmDlg('Удалить службу',
+    'Удалить <b>' + esc(swName(id)) + '</b> с сервера? Сайты, использующие её, перестанут работать.',
+    async () => { try { const r = await api('/api/software/remove', {method:'POST', body:{name:id}});
+      toast(esc(r.message)); _swWasRunning = true; swPoll(); go('software'); } catch(e){ toastErr(e); } });
+}
+function swName(id){
+  const map = {nginx:'nginx', apache:'Apache 2.4', php74:'PHP 7.4', php80:'PHP 8.0',
+    php81:'PHP 8.1', php82:'PHP 8.2', php83:'PHP 8.3', php84:'PHP 8.4',
+    php85:'PHP 8.5', composer:'Composer', mariadb:'MariaDB', postgresql:'PostgreSQL',
+    redis:'Redis', memcached:'Memcached', certbot:'Certbot', fail2ban:'Fail2ban',
+    postfix:'Postfix', dovecot:'Dovecot', mailutils:'Mailutils',
+    nodejs:'Node.js + npm', git:'Git', unzip:'Архиваторы'};
+  return map[id] || id;
+}
+
+/* ---------- ionCube Loader ---------- */
+async function loadIoncube(){
+  const el = document.getElementById('ioncube-block');
+  if (!el) return;
+  let d;
+  try { d = await api('/api/ioncube/status'); }
+  catch(e){ el.innerHTML=''; return; }
+  let rows = '';
+  (d.versions||[]).forEach(v => {
+    const pill = v.installed ? '<span class="pill ok">ionCube ' + esc(v.loader) + '</span>'
+      : '<span class="pill gray">не установлен</span>';
+    const btns = v.installed
+      ? '<button class="btn sm" onclick="ioncubeGo(\'install\',\'' + v.version + '\')">' + icon('refresh',13) + ' Обновить</button>' +
+        '<button class="btn sm danger" onclick="ioncubeGo(\'remove\',\'' + v.version + '\')">Удалить</button>'
+      : '<button class="btn sm primary" onclick="ioncubeGo(\'install\',\'' + v.version + '\')">' + icon('down',13) + ' Установить</button>';
+    rows += '<div class="row" style="align-items:center;padding:10px 6px;border-top:1px solid var(--border)">' +
+      '<span style="width:26px">' + icon('code',18) + '</span>' +
+      '<div style="flex:1"><b>PHP ' + esc(v.version) + '</b></div>' +
+      pill + '<span style="width:10px"></span>' + btns + '</div>';
+  });
+  if (!rows) rows = '<div class="empty">Установите любую версию PHP — она появится здесь</div>';
+  el.innerHTML = '<div class="card" style="padding:6px 10px">' +
+    '<div class="card-h" style="padding:10px 6px 0"><span class="card-t">ionCube Loader</span>' +
+    '<span class="card-spacer"></span><span class="muted" style="font-size:12px">официальные загрузчики ioncube.com · обновление = повторная установка</span></div>' +
+    rows + '</div>';
+}
+async function ioncubeGo(action, version){
+  const what = action === 'remove' ? 'Удалить' : 'Установить/обновить';
+  confirmDlg('ionCube Loader', what + ' ionCube для <b>PHP ' + esc(version) + '</b>? ' +
+    (action === 'remove' ? 'Скрипты, требующие ionCube, перестанут работать.' : 'php-fpm будет перезапущен.'),
+    async () => {
+      try {
+        const r = await api('/api/ioncube/' + action, {method:'POST', body:{version}});
+        toast(esc(r.message));
+        _swWasRunning = true; swPoll();
+      } catch(e){ toastErr(e); }
+    }, action === 'remove');
+}
+
+/* ---------- веб-терминал (замена SSH-клиенту) ---------- */
+async function pgTerm(c){
+  window._termHist = window._termHist || [];
+  window._termHistIdx = -1;
+  c.innerHTML =
+    '<div class="card" style="padding:10px">' +
+    '<div class="row"><div class="field" style="flex:1"><label>Рабочая папка</label>' +
+    '<input type="text" id="term-cwd" class="mono" value="/root"></div></div>' +
+    '<div class="logbox" id="term-out" style="height:440px;overflow:auto;white-space:pre-wrap;background:var(--hover)">root@server — команды выполняются на сервере (замена SSH)\n</div>' +
+    '<div class="row" style="margin-top:10px">' +
+    '<input type="text" id="term-cmd" class="mono" placeholder="команда, например: df -h" autocomplete="off" style="flex:1">' +
+    '<button class="btn primary" onclick="termRun()">Выполнить</button>' +
+    '<button class="btn" onclick="document.getElementById(\'term-out\').textContent=\'\'">Очистить</button></div>' +
+    '<div class="faint" style="font-size:11.5px;margin-top:6px">↑/↓ — история · Enter — выполнить · cd меняет рабочую папку · интерактивные программы (top, vim) не поддерживаются</div></div>';
+  const cmd = $('#term-cmd');
+  cmd.addEventListener('keydown', e => {
+    const h = window._termHist;
+    if (e.key === 'Enter') termRun();
+    else if (e.key === 'ArrowUp') {
+      if (window._termHistIdx < h.length - 1) { window._termHistIdx++; cmd.value = h[h.length-1-window._termHistIdx]; }
+      e.preventDefault();
+    } else if (e.key === 'ArrowDown') {
+      if (window._termHistIdx > 0) { window._termHistIdx--; cmd.value = h[h.length-1-window._termHistIdx]; }
+      else { window._termHistIdx = -1; cmd.value = ''; }
+      e.preventDefault();
+    }
+  });
+  cmd.focus();
+}
+async function termRun(){
+  let cmd = $('#term-cmd').value.trim();
+  if (!cmd) return;
+  const out = $('#term-out');
+  const cwd = $('#term-cwd').value.trim() || '/root';
+  out.textContent += 'root:~$ ' + cmd + '\n';
+  window._termHist.push(cmd);
+  if (window._termHist.length > 100) window._termHist.shift();
+  window._termHistIdx = -1;
+  $('#term-cmd').value = '';
+  out.scrollTop = out.scrollHeight;
+  try {
+    const r = await api('/api/exec', {method:'POST', body:{cmd, cwd}});
+    out.textContent += (r.output && r.output.trim()) ? r.output : '(нет вывода)';
+    if (r.code !== 0) out.textContent += '\n[код завершения ' + r.code + ']';
+    out.textContent += '\n';
+  } catch(e){ out.textContent += 'ОШИБКА: ' + e.message + '\n'; }
+  out.scrollTop = out.scrollHeight;
+}
+
+function serverRebootDlg(){
+  confirmDlg('Перезагрузка сервера',
+    'Действительно перезагрузить <b>весь сервер</b>? Панель и сайты будут недоступны 1–2 минуты.',
+    async () => { try {
+      const r = await api('/api/system/reboot', {method:'POST', body:{confirm:'reboot'}});
+      toast(esc(r.message));
+    } catch(e){ toastErr(e); } });
+}
+
+
+/* ---------- приложения: phpMyAdmin в 1 клик ---------- */
+async function appsLoad(){
+  const el = document.getElementById('apps-block');
+  if (!el) return;
+  let d;
+  try { d = await api('/api/apps'); }
+  catch(e){ el.innerHTML = '<div class="empty">' +
+      esc(e.message || 'Ошибка загрузки') + '</div>'; return; }
+  window._pmaApps = d.apps || [];
+  const rows = window._pmaApps.filter(a => a.installed).map(pmaRow).join('');
+  el.innerHTML =
+    '<div class="card"><div class="card-h"><span class="card-t">Приложения</span>' +
+    '<span class="card-spacer"></span>' +
+    '<button class="btn sm primary" onclick="pmaDlg()">' + icon('down',14) +
+    ' Установить phpMyAdmin</button></div>' +
+    (rows || '<div class="empty">Нет PHP-сайтов — создайте сайт с PHP, ' +
+      'и phpMyAdmin можно будет поставить в 1 клик.</div>') +
+    '<div class="muted" style="font-size:12.5px;padding:4px 6px 8px">' +
+    'phpMyAdmin скачивается с официального сайта и ставится в папку /pma выбранного сайта; ' +
+    'папка закрывается отдельным паролем. К базам подключайтесь своими пользователями MySQL.</div></div>';
+}
+function pmaRow(a){
+  const prot = a.protected
+    ? '<span class="pill ok" title="Папка закрыта паролем">с паролем</span>'
+    : '<span class="pill warn" title="Папка открыта — вход по паролю MySQL">без пароля</span>';
+  return '<div class="row" style="align-items:center;padding:10px 6px;flex-wrap:wrap;border-top:1px solid var(--border)">' +
+    '<span style="width:26px">' + icon('ext',18) + '</span>' +
+    '<div style="flex:1;min-width:180px"><b>' + esc(a.domain) + '/pma</b>' +
+    '<div class="muted" style="font-size:12.5px">phpMyAdmin ' + esc(a.version || '5.2.2') +
+    (a.protected ? ' — вход: логин pma + пароль папки, затем пользователь MySQL'
+                 : ' — вход пользователем MySQL') + '</div></div>' +
+    prot +
+    '<a class="btn sm" style="text-decoration:none" target="_blank" href="' + esc(a.url) + '">открыть</a>' +
+    '<button class="btn sm" onclick="pmaAccessDlg(\'' + esc(a.domain) + '\')">доступы</button>' +
+    '<button class="btn sm" onclick="swsetGo(\'pma\')">настройки</button>' +
+    '<button class="btn sm icon danger" title="Удалить" onclick="pmaRemoveDlg(\'' + esc(a.domain) + '\')">' +
+    icon('trash',13) + '</button></div>';
+}
+function pmaDlg(){
+  api('/api/sites').then(d => {
+    const sites = (d.sites || []).filter(x => x.php);
+    if (!sites.length) { toast('Сначала создайте сайт с PHP', 'warn'); return; }
+    const opts = sites.map(x => {
+      const ssl = (x.ssl || {}).kind !== 'none';
+      return '<option value="' + esc(x.domain) + '">' + esc(x.domain) +
+        (ssl ? ' (SSL)' : '') + '</option>';
+    }).join('');
+    modal('Установка phpMyAdmin',
+      '<div class="field"><label>Сайт — куда установить (папка /pma)</label>' +
+      '<select id="pma-site" style="width:100%">' + opts + '</select></div>' +
+      '<label class="check" style="margin:6px 0 4px"><input type="checkbox" ' +
+      'id="pma-protect" checked onchange="pmaProtToggle()"> ' +
+      'Закрыть папку паролем (рекомендуется)</label>' +
+      '<div class="field" id="pma-pass-row">' +
+      pwField('pma-pass', {label:'Пароль папки /pma',
+        hint:'Появится в браузере при входе в phpMyAdmin. Сохраните — увидите его в «доступах».'}) + '</div>' +
+      '<div class="notice info">Внутри phpMyAdmin входите пользователем MySQL — ' +
+      'его можно создать в разделе «Базы данных».</div>',
+      '<button class="btn primary" onclick="pmaInstall()">' + icon('down',15) +
+      ' Установить</button>' +
+      '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+    setTimeout(() => { pwGenerate('pma-pass'); pwBindStrength('pma-pass'); }, 250);
+  }).catch(e => toastErr(e));
+}
+function pmaProtToggle(){
+  // чекбокс называется по-разному в двух диалогах установки (pma-protect / ps-protect)
+  const cb = document.getElementById('pma-protect') ||
+             document.getElementById('ps-protect');
+  const row = document.getElementById('pma-pass-row');
+  if (cb && row) row.style.display = cb.checked ? '' : 'none';
+}
+async function pmaInstall(){
+  try {
+    const passEl = document.getElementById('pma-pass');
+    const r = await api('/api/apps/install', {method:'POST', body:{
+      app:'pma', site: document.getElementById('pma-site').value,
+      protect: document.getElementById('pma-protect').checked,
+      password: passEl ? passEl.value : ''}});
+    closeModal(); toast(esc(r.message)); swPoll();
+  } catch(e){ toastErr(e); }
+}
+function pmaAccessDlg(domain){
+  const row = (window._pmaApps || []).find(a => a.domain === domain);
+  if (!row) return;
+  const line = (label, val) =>
+    '<div class="row" style="justify-content:space-between;align-items:center;gap:8px;padding:3px 0">' +
+    '<span class="muted">' + label + '</span><b class="mono" style="flex:1;text-align:right">' +
+    esc(val) + '</b>' +
+    '<button class="btn sm" data-v="' + esc(val) + '" onclick="copyText(this.dataset.v, this)">' +
+    icon('copy',13) + '</button></div>';
+  modal('Доступы phpMyAdmin — ' + esc(domain),
+    '<div class="field"><label>Адрес</label>' + line('открыть в браузере', row.url) + '</div>' +
+    (row.protected
+      ? '<div class="field"><label>Вход в папку (basic auth)</label>' +
+        line('логин', row.user) + line('пароль', row.password) + '</div>' +
+        '<div class="faint" style="font-size:12px">Затем — пользователь и пароль MySQL.</div>'
+      : '<div class="notice warn">Папка не закрыта паролем. Входите сразу пользователем MySQL.</div>'),
+    '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+}
+function pmaRemoveDlg(domain){
+  confirmDlg('Удалить phpMyAdmin',
+    'Папка <b>/pma</b> сайта <b>' + esc(domain) + '</b> будет удалена вместе с настройками. Удалить?',
+    async () => {
+      try { const r = await api('/api/apps/remove', {method:'POST',
+          body:{app:'pma', site:domain}});
+        toast(esc(r.message)); swPoll(); } catch(e){ toastErr(e); }
+    });
+}
+
+
+/* ---------- настройки ПО: пароли, поля и конфиги служб (2.6.0) ---------- */
+const SWSET_ICONS = {nginx:'globe', apache:'server', mariadb:'db',
+  postgresql:'db', redis:'zap', memcached:'zap', postfix:'ext',
+  dovecot:'archive', fail2ban:'shield', pma:'db'};
+async function pgSwset(c){
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let d;
+  try { d = await api('/api/swset'); } catch(e){ c.innerHTML=''; toastErr(e); return; }
+  const entries = d.entries || [];
+  if (!entries.length){
+    c.innerHTML = '<div class="empty">Установите службы в разделе «Установка ПО» — ' +
+      'и здесь появятся их настройки.</div>';
+    return;
+  }
+  window._swsetData = entries;
+  c.innerHTML =
+    '<div class="toolbar"><span class="muted" style="font-size:13px">Понятные настройки установленных служб: ' +
+    'пароли, ключевые параметры и конфиги. Перед каждым изменением панель делает копию конфига; ' +
+    'если служба с новым конфигом не поднимается — настройки откатываются автоматически.</span></div>' +
+    entries.map(swsetCard).join('');
+  const hl = window._swsetHighlight;
+  if (hl){
+    window._swsetHighlight = '';
+    const el = document.getElementById('swset-' + hl);
+    if (el){ el.scrollIntoView({behavior:'smooth', block:'start'});
+      el.style.outline = '2px solid var(--accent)';
+      setTimeout(() => { el.style.outline = ''; }, 2500); }
+  }
+}
+function swsetCard(e){
+  const pill = e.active === null ? '' :
+    (e.active ? '<span class="pill ok">работает</span>'
+              : '<span class="pill danger">остановлен</span>');
+  let html =
+    '<div class="card" id="swset-' + esc(e.id) + '" style="margin-bottom:14px">' +
+    '<div class="card-h"><span style="width:26px;display:inline-block">' +
+    icon(SWSET_ICONS[e.id]||'pkg',18) + '</span>' +
+    '<span class="card-t">' + esc(e.name) + '</span>' + pill + '</div>';
+  if (e.note) html += '<div class="muted" style="font-size:12.5px;padding:0 6px 6px">' + esc(e.note) + '</div>';
+  if (e.fields.length){
+    html += '<div style="padding:4px 6px 2px"><b style="font-size:13px">Параметры</b></div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px 14px;padding:2px 6px 6px">' +
+      e.fields.map(f => swsetField(e.id, f)).join('') + '</div>' +
+      '<div style="padding:0 6px 8px"><button class="btn sm primary" onclick="swsetSave(\'' + esc(e.id) + '\')">' +
+      icon('check',14) + ' Сохранить параметры</button></div>';
+  }
+  if (e.passwords.length){
+    html += '<div style="padding:4px 6px 2px;border-top:1px solid var(--border)"><b style="font-size:13px">Пароли</b></div>' +
+      '<div style="padding:2px 6px 6px">' +
+      e.passwords.map(p =>
+        '<div class="row" style="align-items:center;padding:6px 0;gap:10px">' +
+        '<div style="flex:1;min-width:0"><b style="font-size:13px">' + esc(p.label) + '</b>' +
+        (p.hint ? '<div class="muted" style="font-size:12px">' + esc(p.hint) + '</div>' : '') + '</div>' +
+        '<button class="btn sm" onclick="swPassDlg(\'' + esc(e.id) + '\',\'' + esc(p.key) + '\')">Сменить</button>' +
+        (e.id === 'redis' ? '<button class="btn sm danger" onclick="swPassClear(\'' + esc(e.id) + '\',\'' + esc(p.key) + '\')">Убрать</button>' : '') +
+        '</div>').join('') + '</div>';
+  }
+  const files = (e.files||[]).filter(f => f.path);
+  if (files.length){
+    html += '<div style="padding:4px 6px 2px;border-top:1px solid var(--border)"><b style="font-size:13px">Конфигурационные файлы</b></div>' +
+      '<div style="padding:2px 6px 6px">' +
+      files.map(f =>
+        '<div class="row" style="align-items:center;padding:6px 0;gap:10px">' +
+        '<div style="flex:1;min-width:0"><span class="mono" style="font-size:12.5px">' + esc(f.path) + '</span></div>' +
+        '<button class="btn sm" onclick="swFileEdit(\'' + esc(e.id) + '\', decodeURIComponent(\'' + encodeURIComponent(f.name) + '\'))">' +
+        icon('file',14) + ' Редактировать</button></div>').join('') + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+function swsetField(id, f){
+  const fid = 'swf-' + id + '-' + f.key;
+  const hint = f.hint ? '<div class="faint" style="font-size:11.5px;margin-top:3px">' + esc(f.hint) + '</div>' : '';
+  let inp;
+  if (f.type === 'choice'){
+    inp = '<select id="' + fid + '" class="mono">' +
+      f.options.map(o => '<option' + (o === f.value ? ' selected' : '') + '>' + esc(o) + '</option>').join('') +
+      '</select>';
+  } else if (f.type === 'bool'){
+    inp = '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">' +
+      '<input type="checkbox" id="' + fid + '"' + (f.value ? ' checked' : '') + '> включено</label>';
+  } else if (f.type === 'int' || f.type === 'float'){
+    inp = '<input type="number" id="' + fid + '" class="mono" value="' + esc(f.value === null || f.value === undefined ? '' : f.value) + '"' +
+      (f.type === 'float' ? ' step="0.1"' : ' step="1"') +
+      (f.min !== undefined ? ' min="' + f.min + '"' : '') + (f.max !== undefined ? ' max="' + f.max + '"' : '') + '>';
+  } else {
+    inp = '<input type="text" id="' + fid + '" class="mono" value="' + esc(f.value === null || f.value === undefined ? '' : f.value) + '">';
+  }
+  return '<div class="field" style="margin:0"><label>' + esc(f.label) + '</label>' + inp + hint + '</div>';
+}
+async function swsetSave(id){
+  const card = document.getElementById('swset-' + id);
+  const fields = {};
+  card.querySelectorAll('[id^="swf-' + id + '-"]').forEach(inp => {
+    const key = inp.id.replace('swf-' + id + '-', '');
+    fields[key] = inp.type === 'checkbox' ? inp.checked : inp.value;
+  });
+  try {
+    const r = await api('/api/swset/save', {method:'POST', body:{id, fields}});
+    toast(esc(r.message)); go('swset');
+  } catch(e){ toastErr(e); }
+}
+async function swFileEdit(id, name){
+  let d;
+  try { d = await api('/api/swset/file?id=' + encodeURIComponent(id) + '&name=' + encodeURIComponent(name)); }
+  catch(e){ toastErr(e); return; }
+  const lang = prismLangFromKind(d.kind || '');
+  const bk = (d.backups || []).slice(0, 5);
+  window._swFile = {id, name};
+  modal('Конфиг: ' + esc(d.path),
+    '<div id="swed-wrap"></div>' +
+    '<div class="faint" style="font-size:11.5px;margin-top:6px">при сохранении панель делает копию и проверяет синтаксис; при ошибке конфиг откатится</div>' +
+    (bk.length ? '<div class="faint" style="font-size:11.5px;margin-top:4px">Копии: ' +
+      bk.map(b => '<a href="#" style="text-decoration:underline" title="восстановить" ' +
+        'onclick="swFileRestore(decodeURIComponent(\'' + encodeURIComponent(b.file) + '\')); return false">' +
+        esc(b.file) + '</a>').join(' · ') + '</div>' : ''),
+    '<button class="btn primary" onclick="swFileSave()">' + icon('check',15) + ' Сохранить</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+  window._swEdApi = mountCodeEditor(document.getElementById('swed-wrap'),
+    d.content || '', lang);
+}
+async function swFileSave(){
+  const {id, name} = window._swFile;
+  try {
+    const r = await api('/api/swset/file', {method:'POST',
+      body:{id, name, content: window._swEdApi.get()}});
+    toast(esc(r.message)); closeModal(); go('swset');
+  } catch(e){ toastErr(e); }
+}
+async function swFileRestore(file){
+  const {id, name} = window._swFile;
+  confirmDlg('Восстановить копию',
+    'Восстановить конфиг <b>' + esc(name) + '</b> из копии <b>' + esc(file) + '</b>? ' +
+    'Служба будет перезагружена с прежними настройками.', async () => {
+    try {
+      const r = await api('/api/swset/restore', {method:'POST',
+        body:{id, name, file}});
+      toast(esc(r.message)); closeModal(); go('swset');
+    } catch(e){ toastErr(e); }
+  }, false);
+}
+function swPassDlg(id, key){
+  const e = (window._swsetData || []).find(x => x.id === id);
+  const p = e ? (e.passwords.find(x => x.key === key) || {}) : {};
+  modal('Сменить пароль — ' + esc(e ? e.name : id),
+    pwField('sw-pass', {label: 'Новый пароль (пусто — сгенерировать автоматически)',
+      hint: esc(p.hint || 'Пароль будет показан после смены — сохраните его.')}) +
+    '<div id="sw-pass-out"></div>',
+    '<button class="btn primary" onclick="swPassDo(\'' + esc(id) + '\',\'' + esc(key) + '\')">Сменить пароль</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>');
+  pwBindStrength('sw-pass');
+}
+async function swPassDo(id, key){
+  const pw = document.getElementById('sw-pass').value;
+  try {
+    const r = await api('/api/swset/password', {method:'POST',
+      body:{id, key, password: pw}});
+    const gen = r.password || pw;
+    document.getElementById('sw-pass-out').innerHTML =
+      '<div class="notice ok" style="margin-top:8px"><b>Пароль изменён:</b> ' +
+      '<span class="mono" id="sw-pass-val">' + esc(gen) + '</span> ' +
+      '<button class="btn sm icon" onclick="copyText(document.getElementById(\'sw-pass-val\').textContent, this)">' + copyIconSvg + '</button>' +
+      '<div class="faint" style="font-size:11.5px;margin-top:4px">скопируйте и сохраните — больше он не покажется</div></div>';
+    CTXlog(r.message);
+  } catch(e){ toastErr(e); }
+}
+function CTXlog(msg){ if (msg) console.log(msg); }
+async function swPassClear(id, key){
+  confirmDlg('Убрать пароль',
+    'Убрать пароль подключения к Redis? Подключения без пароля станут возможны ' +
+    '(следите, чтобы порт слушал только 127.0.0.1).', async () => {
+    try {
+      const r = await api('/api/swset/password', {method:'POST',
+        body:{id, key, clear: true}});
+      toast(esc(r.message)); go('swset');
+    } catch(e){ toastErr(e); }
+  });
+}
+/* кнопка «Настройки» в каталоге «Установка ПО» */
+function swsetGo(id){
+  window._swsetHighlight = id; go('swset');
+}
+const SWSET_IDS = {nginx:1, apache:1, php74:1, php80:1, php81:1, php82:1,
+  php83:1, php84:1, php85:1, mariadb:1, postgresql:1, redis:1,
+  memcached:1, postfix:1, dovecot:1, fail2ban:1};

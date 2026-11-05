@@ -6,7 +6,7 @@ import { toast, toastErr } from '../../lib/toast';
 import { confirmDlg } from '../../lib/confirm';
 import UiIcon from '../../components/UiIcon.vue';
 import AppModal from '../../components/AppModal.vue';
-import { siteState, sslActive } from './siteShared';
+import { siteState, sslActive, sslDays, type Site } from './siteShared';
 
 const s = () => siteState.site;
 
@@ -102,39 +102,82 @@ function sslKindText(kind: string): string {
   return kind === 'letsencrypt' ? "Let's Encrypt" : 'Самоподписанный';
 }
 
-function daysText(expires?: string): string {
-  if (!expires) return '';
-  const days = Math.round((new Date(expires).getTime() - Date.now()) / 86400000);
-  return isNaN(days) ? '' : ' (' + days + ' дн.)';
+/* ---------- пилюля дней до конца сертификата ---------- */
+function daysLeft(site: Site): number | null {
+  return sslDays(site);
+}
+
+function daysPillCls(site: Site): string {
+  const d = sslDays(site);
+  if (d === null) return 'pill err';
+  if (d < 14) return 'pill err';
+  if (d < 30) return 'pill warn';
+  return 'pill ok';
+}
+
+function daysPillText(site: Site): string {
+  const d = sslDays(site);
+  return d === null ? 'истекает' : d + ' дн.';
+}
+
+/** владелец/issuer — если сервер их отдал */
+function issuerText(site: Site): string {
+  const ssl = site.ssl || {};
+  const owner = ssl.owner || ssl.subject || '';
+  const issuer = ssl.issuer || '';
+  return [owner, issuer].filter(Boolean).join(' · ');
 }
 </script>
 
 <template>
   <div v-if="s()">
-    <!-- SSL не настроен -->
+    <!-- SSL не настроен: состояние-приглашение -->
     <template v-if="!sslActive(s()!)">
-      <div class="notice warn">SSL не настроен. Рекомендуется Let's Encrypt — бесплатный сертификат с автопродлением.</div>
-      <div class="faint" style="font-size:12px;margin:-2px 0 8px">Сертификат выпускается для домена<template v-if="s()!.www"> и для www.{{ s()!.domain }}.</template><template v-else> (www отключён — включите галочку «Обслуживать www.домен» во вкладке «Основное», если он нужен).</template></div>
-      <div class="row">
-        <button class="btn primary" @click="sslIssue('letsencrypt')">Выпустить Let's Encrypt</button>
-        <button class="btn" @click="sslIssue('selfsigned')">Самоподписанный</button>
+      <div class="card" style="padding:16px 18px">
+        <div class="card-h" style="margin-bottom:8px">
+          <UiIcon name="lock" :size="18" />
+          <span class="card-t">Сайт работает по HTTP</span>
+          <span class="pill warn">без SSL</span>
+        </div>
+        <div class="notice warn" style="margin-bottom:8px">
+          SSL не настроен — соединение с сайтом не шифруется.
+          Рекомендуется Let's Encrypt — бесплатный сертификат с автопродлением.</div>
+        <div class="faint" style="font-size:12px;margin:-2px 0 10px">Сертификат выпускается для домена<template v-if="s()!.www"> и для www.{{ s()!.domain }}.</template><template v-else> (www отключён — включите галочку «Обслуживать www.домен» во вкладке «Основное», если он нужен).</template></div>
+        <div class="row">
+          <button class="btn primary" @click="sslIssue('letsencrypt')">
+            <UiIcon name="shield" :size="15" /> Выпустить Let's Encrypt</button>
+          <button class="btn" @click="sslIssue('selfsigned')">
+            <UiIcon name="lock" :size="15" /> Самоподписанный</button>
+        </div>
       </div>
     </template>
 
-    <!-- сертификат есть -->
+    <!-- сертификат есть: карточка с информацией -->
     <template v-else>
-      <div class="kv">
-        <b>Тип</b><span>{{ sslKindText(s()!.ssl.kind) }}</span>
-        <b>Домены</b><span>{{ (s()!.ssl.domains || []).join(', ') }}</span>
-        <b>Действует до</b><span>{{ s()!.ssl.expires }}{{ daysText(s()!.ssl.expires) }}</span>
-      </div>
-      <div class="row" style="margin-top:14px">
-        <button class="btn" @click="sslIssue('letsencrypt')">
-          <UiIcon name="refresh" :size="15" /> Перевыпустить</button>
-        <button class="btn danger" @click="sslDel()">Удалить сертификат</button>
+      <div class="card" style="padding:14px 18px">
+        <div class="card-h" style="margin-bottom:10px">
+          <UiIcon name="lock" :size="18" />
+          <span class="card-t">Сертификат</span>
+          <span :class="daysPillCls(s()!)">{{ daysPillText(s()!) }}</span>
+        </div>
+        <div class="kv">
+          <b>Тип</b><span>{{ sslKindText(s()!.ssl.kind) }}</span>
+          <b>Домены</b><span class="mono" style="word-break:break-all">{{ (s()!.ssl.domains || []).join(', ') }}</span>
+          <b>Действует до</b><span>{{ s()!.ssl.expires }} <span :class="daysPillCls(s()!)">{{ daysPillText(s()!) }}</span></span>
+          <template v-if="issuerText(s()!)">
+            <b>Владелец / issuer</b><span>{{ issuerText(s()!) }}</span>
+          </template>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn primary" @click="sslIssue('letsencrypt')">
+            <UiIcon name="refresh" :size="15" /> Перевыпустить</button>
+          <button class="btn danger" @click="sslDel()">
+            <UiIcon name="trash" :size="15" /> Удалить сертификат</button>
+        </div>
       </div>
     </template>
 
+    <!-- диагностика: отдельная группа -->
     <div class="row" style="margin-top:12px">
       <button class="btn" @click="sslDnsCheck()">
         <UiIcon name="globe" :size="15" /> Проверить DNS домена</button>

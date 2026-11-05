@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""Проверка полноты глобального реестра обработчиков:
+1) находит все имена в inline onclick/onchange/oninput по dist/*.js
+2) сверяет с ключами HANDLERS в dist/core/globals.js
+3) ищет остаточные обращения к window._* (их быть не должно)
+"""
+import re
+import sys
+from pathlib import Path
+
+DIST = Path(__file__).resolve().parent / "dist"
+
+handlers = set()
+for f in DIST.rglob("*.js"):
+    src = f.read_text(encoding="utf-8", errors="replace")
+    for m in re.finditer(r'on(?:click|change|input)="([a-zA-Z_$][\w$]*)\(', src):
+        handlers.add(m.group(1))
+
+reg = (DIST / "core" / "globals.js").read_text(encoding="utf-8", errors="replace")
+registered = set(re.findall(r'([a-zA-Z_$][\w$]*):\s', reg))
+
+missing = sorted(h for h in handlers if h not in registered and h not in (
+    "this", "window", "document", "location"))
+leftover = []
+for f in DIST.rglob("*.js"):
+    src = f.read_text(encoding="utf-8", errors="replace")
+    for m in re.finditer(r'window\._(\w+)', src):
+        leftover.append(f"{f.name}: window._{m.group(1)}")
+
+print("inline-обработчиков найдено:", len(handlers))
+print("зарегистрировано в HANDLERS:", len(registered))
+if missing:
+    print("НЕ ЗАРЕГИСТРИРОВАНЫ:", ", ".join(missing))
+if leftover:
+    print("ОСТАТКИ window._*:")
+    for x in sorted(set(leftover)):
+        print("  ", x)
+if missing or leftover:
+    sys.exit(1)
+print("OK: все inline-обработчики зарегистрированы, остатков window._* нет")

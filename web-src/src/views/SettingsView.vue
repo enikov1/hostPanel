@@ -26,6 +26,19 @@ const settings = reactive({
 });
 const expert = ref(!!me.expert);
 const ntSec = ref(false);
+/* типы событий уведомлений (отсутствующий ключ = включено) */
+const notifyEvents = reactive({
+  site_down: true, site_recover: true, backup: true,
+  cert: true, password: true, security: true,
+});
+const NOTIFY_EVENT_LABELS: Record<string, string> = {
+  site_down: 'Сайт недоступен',
+  site_recover: 'Сайт восстановился',
+  backup: 'Резервные копии (создание/восстановление)',
+  cert: 'Сертификаты (перевыпуск, истечение)',
+  password: 'Смена паролей и реквизитов',
+  security: 'Безопасность: входы в панель, блокировки fail2ban',
+};
 
 /* ---------- уведомления ---------- */
 const ntEmail = reactive({
@@ -123,6 +136,9 @@ async function load(): Promise<void> {
   const n = s.notify || { email: {}, tg: {} };
   const e = n.email || {}, t = n.tg || {};
   ntSec.value = !!(n.security || {}).enabled;
+  const ev = n.events || {};
+  for (const k of Object.keys(notifyEvents))
+    (notifyEvents as any)[k] = ev[k] !== false;
   ntEmail.enabled = !!e.enabled; ntEmail.host = e.host || '';
   ntEmail.port = Number(e.port) || 587; ntEmail.user = e.user || '';
   ntEmail.pass = e.pass || ''; ntEmail.from = e.from || e.user || '';
@@ -144,7 +160,8 @@ async function settingsSave(): Promise<void> {
       expert_mode: expert.value,
       weekly_report_enabled: settings.weekly_report_enabled,
       public_status: settings.public_status,
-      notify: { security: { enabled: ntSec.value } } } });
+      notify: { security: { enabled: notifyEvents.security } },
+      notify_events: { ...notifyEvents } } });
     toast(r.message);
     if (expChanged) setTimeout(() => location.reload(), 700);
   } catch (e) { toastErr(e); }
@@ -173,7 +190,8 @@ async function notifySave(): Promise<void> {
     email: { enabled: ntEmail.enabled, host: ntEmail.host,
       port: +ntEmail.port || 587, user: ntEmail.user,
       pass: ntEmail.pass, from: ntEmail.from, to: ntEmail.to },
-    tg: { enabled: ntTg.enabled, token: ntTg.token, chat: ntTg.chat } } } });
+    tg: { enabled: ntTg.enabled, token: ntTg.token, chat: ntTg.chat },
+    events: { ...notifyEvents } } } });
   toast(r.message);
 }
 
@@ -496,15 +514,21 @@ onMounted(() => { load(); updCheck(true); });
     <div v-show="tab === 'notify'">
               <div class="card">
                 <div class="card-h">
-                  <span class="card-t">Уведомления о проблемах</span>
+                  <span class="card-t">Уведомления</span>
                   <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
                     <img src="/logos/mail.svg" width="18" height="18" alt="mail" title="E-mail">
                     <img src="/logos/telegram.svg" width="18" height="18" alt="Telegram" title="Telegram">
                   </span>
                 </div>
                 <div class="faint" style="font-size:12.5px;line-height:1.55;margin-bottom:6px">Панель сообщит на e-mail и в Telegram, когда сайт перестанет отвечать, когда восстановится и по итогам каждого автобэкапа.</div>
-                <UiCheckbox v-model="ntSec">
-                  О безопасности: входы в панель и блокировки fail2ban (Telegram)
+                <div class="g-title no-line">Что отправлять</div>
+                <div class="faint" style="font-size:12px;margin:0 0 8px">
+                  Выберите, о чём сообщать. События шлются во все включённые
+                  каналы (e-mail / Telegram ниже).</div>
+                <UiCheckbox v-for="(label, key) in NOTIFY_EVENT_LABELS"
+                            :key="key"
+                            v-model="(notifyEvents as any)[key]">
+                  {{ label }}
                 </UiCheckbox>
                 <UiCheckbox v-model="ntEmail.enabled">
                   <img src="/logos/mail.svg" width="15" height="15" style="vertical-align:-3px;margin-right:4px">

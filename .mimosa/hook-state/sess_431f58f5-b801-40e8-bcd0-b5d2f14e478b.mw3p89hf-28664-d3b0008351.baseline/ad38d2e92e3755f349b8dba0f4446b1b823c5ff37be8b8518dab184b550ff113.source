@@ -1,0 +1,391 @@
+/* ============ boot.ts — вход/выход, приветственный мастер, колокольчик,
+   глобальный поиск, запуск приложения ============ */
+import { api, setUnauthorizedHook } from './api/client';
+import { icon } from './core/icons';
+import { esc, $ } from './core/format';
+import { me, session, hooks } from './core/state';
+import { NAV, buildNav, go, setBellUpdater } from './core/router';
+import { applyTheme } from './core/theme';
+import { toast, toastErr } from './components/toast';
+import { modal, closeModal, unlockModal, isModalOpen } from './components/modal';
+import { pwField, pwGenerate, pwBindStrength } from './components/pw';
+
+/* страницы: импорт с побочным эффектом — каждая регистрирует себя в роутере */
+import './pages/monitoring';
+import './pages/sites';
+import './pages/dbs';
+import './pages/mail';
+import './pages/files';
+import './pages/backups';
+import './pages/cron';
+import './pages/firewall';
+import './pages/packages';
+import './pages/software';
+import './pages/swset';
+import './pages/settings';
+import './pages/term';
+
+/* inline-обработчики в шаблонах ссылаются на функции по имени —
+   публикуем их через глобальный реестр */
+import './core/globals';
+
+/* ---------- вход/выход ---------- */
+function showLoginError(msg: string): void {
+  const box = document.getElementById('lg-error');
+  if (!box) return;
+  box.textContent = msg;
+  box.classList.remove('hidden');
+}
+
+export async function doLogin(ev?: Event): Promise<void> {
+  if (ev && typeof (ev as SubmitEvent).preventDefault === 'function') {
+    ev.preventDefault();  // форма входа перехватывает submit
+  }
+  const btn = $('#lg-btn') as HTMLButtonElement;
+  ($('#lg-error') as HTMLElement)!.classList.add('hidden');
+  btn.disabled = true;
+  const twoFa = !($('#lg-2fa') as HTMLElement).classList.contains('hidden');
+  try {
+    const r = await fetch('/api/login', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: ($('#lg-user') as HTMLInputElement).value,
+        password: ($('#lg-pass') as HTMLInputElement).value,
+        code: twoFa ? ($('#lg-code') as HTMLInputElement).value : undefined }) });
+    let j: any = {};
+    try { j = await r.json(); } catch (e) { /* пустое/некорректное тело */ }
+    if (r.status === 429) {
+      showLoginError('Слишком много неудачных попыток входа — вход заблокирован на 5 минут. ' +
+        'Если пароль потерян, сбросьте его на сервере командой hcp reset-password.');
+      return;
+    }
+    if (j.need_code) {
+      ($('#lg-2fa') as HTMLElement).classList.remove('hidden');
+      ($('#lg-code') as HTMLInputElement).focus();
+      let msg: string = j.error || 'Введите код из приложения-аутентификатора';
+      if (j.attempts_left === 0) msg += '. Попытки исчерпаны — вход заблокирован на 5 минут';
+      else if (typeof j.attempts_left === 'number') msg += '. Осталось попыток: ' + j.attempts_left;
+      showLoginError(msg);
+      return;
+    }
+    if (!j.ok) {
+      let msg: string = j.error || 'Неверный логин или пароль.';
+      if (j.attempts_left === 0)
+        msg += ' Попытки исчерпаны — вход заблокирован на 5 минут (сброс: hcp reset-password на сервере).';
+      else if (typeof j.attempts_left === 'number')
+        msg += ' Осталось попыток: ' + j.attempts_left + ' — потом блокировка на 5 минут.';
+      showLoginError(msg);
+      return;
+    }
+    location.reload();  // вход выполнен — перезагрузка уже с сессией
+    return;
+  } catch (e) {
+    // fetch не дошёл: сеть, TLS или fail2ban забанил IP после неудачных попыток
+    showLoginError('Сервер недоступен — запрос не дошёл. Если перед этим было несколько ' +
+      'неверных паролей, ваш IP мог заблокировать fail2ban: подождите ~10 минут либо ' +
+      'выполните на сервере под root команду hcp reset-password.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function showLogin(): void {
+  ($('#app') as HTMLElement)!.classList.add('hidden');
+  ($('#login') as HTMLElement)!.classList.remove('hidden');
+}
+
+export async function doLogout(): Promise<void> {
+  try { await api('/api/logout', { method: 'POST', body: {} }); } catch (e) {}
+  updateLoginHint();
+  showLogin();
+}
+
+/* ---------- принудительная смена стандартного пароля ---------- */
+function forcePwModal(): void {
+  // окно появляется и после первого входа (admin/admin), и после
+  // аварийного сброса пароля из консоли — во втором случае текущий
+  // пароль не 'admin', и его нужно спросить у пользователя
+  const isDefault = session.defaultPw === true;
+  modal('Смените пароль',
+    (isDefault
+      ? '<div class="notice warn" style="margin-top:2px">Вы вошли со стандартным паролем ' +
+        '<b class="mono">admin</b>. Это небезопасно — панель открыта из интернета. ' +
+        'Придумайте свой пароль прямо сейчас.</div>'
+      : '<div class="notice warn" style="margin-top:2px">Пароль был сброшен из консоли. ' +
+        'Задайте свой собственный пароль прямо сейчас.</div>') +
+    (!isDefault
+      ? '<div class="field"><label>Текущий пароль (временный, из сообщения поддержки)</label>' +
+        '<input type="password" id="fp-old" autocomplete="current-password"></div>'
+      : '') +
+    pwField('fp-new', { label: 'Новый пароль', hint: 'Нажмите «сгенерировать» — создастся надёжный пароль. Скопируйте его и сохраните в надёжном месте.' }) +
+    '<div class="field"><label>Повторите пароль</label>' +
+    '<input type="text" id="fp-rep" class="mono" placeholder="введите пароль ещё раз"></div>',
+    '<button class="btn primary" onclick="forcePwSave()">Сохранить новый пароль</button>',
+    false, true);
+  pwBindStrength('fp-new');
+}
+
+export async function forcePwSave(): Promise<void> {
+  const pw = ($('#fp-new') as HTMLInputElement).value;
+  const rep = ($('#fp-rep') as HTMLInputElement).value;
+  const oldInp = document.getElementById('fp-old') as HTMLInputElement | null;
+  const old = oldInp ? oldInp.value : 'admin';
+  if (oldInp && !old) { toast('Введите текущий (временный) пароль', 'warn'); return; }
+  if (pw.length < 8) { toast('Пароль слишком короткий — минимум 8 символов', 'warn'); return; }
+  if (pw === 'admin') { toast('Пароль «admin» использовать нельзя', 'warn'); return; }
+  if (pw !== rep) { toast('Пароли не совпадают', 'warn'); return; }
+  try {
+    await api('/api/password/change', { method: 'POST', body: { old, new: pw } });
+    unlockModal();
+    closeModal();
+    me.must_change_password = false;
+    session.defaultPw = false;
+    updateLoginHint();
+    toast('Пароль изменён — старый больше не работает');
+    go('overview');
+    setTimeout(wizardWelcome, 400);
+  } catch (e) { toastErr(e); }
+}
+
+/* ---------- welcome-мастер первого запуска ------------------------------ */
+async function wizardWelcome(): Promise<void> {
+  let done2fa = false;
+  try { done2fa = (await api('/api/totp/status')).enabled; } catch (e) {}
+  if (done2fa) { session.wizard2fa = null; }
+  else {
+    try { session.wizard2fa = await api('/api/totp/setup'); }
+    catch (e) { session.wizard2fa = null; }
+  }
+  const tfa = session.wizard2fa;
+  // QR: /api/totp/qr возвращает JSON с SVG — грузим api()-м и вставляем
+  const qr = (tfa && tfa.qr && tfa.uri)
+    ? '<div id="wz-qr" style="width:170px;min-height:170px;background:#fff;' +
+      'border-radius:10px;padding:6px;text-align:center"></div>' : '';
+  const step1 = tfa
+    ? '<div class="kv" style="margin-bottom:6px"><b>Шаг 1</b>' +
+      '<span>Включите двухфакторную защиту — даже если пароль утечёт, без кода из приложения в панель не войти.</span></div>' +
+      '<div class="row" style="gap:16px;align-items:flex-start">' + qr +
+      '<div style="flex:1;min-width:220px">' +
+      '<div class="muted" style="font-size:13px;line-height:1.55">Установите приложение-аутентификатор (Google Authenticator, Яндекс.Ключ и т.п.), отсканируйте QR-код или введите ключ вручную:</div>' +
+      '<div class="mono" style="font-size:14px;margin:8px 0;word-break:break-all;user-select:all">' + esc(tfa.secret) + '</div>' +
+      '<div class="field"><label>Код из приложения (6 цифр)</label>' +
+      '<input type="text" id="wz-code" class="mono" maxlength="6" inputmode="numeric" autocomplete="one-time-code"></div>' +
+      '</div></div>'
+    : '<div class="kv" style="margin-bottom:6px"><b>Шаг 1</b>' +
+      '<span>Двухфакторная защита уже включена — отлично!</span></div>';
+  const foot = tfa
+    ? '<button class="btn primary" onclick="wizard2faEnable()">Включить 2FA</button>' +
+      '<button class="btn" onclick="wizardDone(true)">Не включать — сразу к сайту</button>' +
+      '<button class="btn" onclick="wizardDone()">Закрыть</button>'
+    : '<button class="btn primary" onclick="wizardDone(true)">Создать сайт</button>' +
+      '<button class="btn" onclick="wizardDone()">Готово</button>';
+  modal('Добро пожаловать в HostPanel!',
+    '<div class="notice ok">Панель готова к работе. Два коротких шага — и всё под защитой.</div>' +
+    step1 +
+    '<div class="kv" style="margin-top:14px"><b>Шаг 2</b>' +
+    '<span>Создайте первый сайт: домен, версия PHP и база данных — мастер проведёт по шагам.</span></div>',
+    foot, true, false);
+  const codeEl = document.getElementById('wz-code') as HTMLInputElement | null;
+  if (codeEl) {
+    codeEl.focus();
+    codeEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') wizard2faEnable(); });
+  }
+  if (tfa && tfa.qr && tfa.uri) {
+    api('/api/totp/qr?uri=' + encodeURIComponent(tfa.uri)).then((q) => {
+      const el = document.getElementById('wz-qr');
+      if (el && q.svg) el.innerHTML =
+        q.svg.replace('<svg', '<svg style="width:158px;height:158px"');
+    }).catch(() => {});  // без QR остаётся ручной ввод ключа
+  }
+}
+
+export async function wizard2faEnable(): Promise<void> {
+  const tfa = session.wizard2fa;
+  const code = ((document.getElementById('wz-code') as HTMLInputElement) || {} as HTMLInputElement).value || '';
+  if (!tfa) return;
+  try {
+    await api('/api/totp/enable', { method: 'POST',
+      body: { secret: tfa.secret, code: code.trim() } });
+    toast('Двухфакторная защита включена. При следующем входе нужен код из приложения');
+    wizardDone(true);
+  } catch (e) { toastErr(e); }
+}
+
+export function wizardDone(createSite?: boolean): void {
+  try { localStorage.setItem('hp_wizard_done', '1'); } catch (e) {}
+  session.wizard2fa = null;
+  closeModal();
+  if (createSite) (window as any).wizardSite();
+}
+
+/* ---------- колокольчик: уведомления ---------- */
+async function updateBellBadge(): Promise<void> {
+  const bell = document.getElementById('btn-bell');
+  if (!bell) return;
+  let d: any;
+  try { d = await api('/api/notifications'); } catch (e) { return; }
+  const list = d.notifications || [];
+  const last = +(localStorage.getItem('hp_last_read') || 0);
+  let unread = 0;
+  list.forEach((n: any) => {
+    const t = new Date((n.ts || '').replace(' ', 'T')).getTime() || 0;
+    if (t > last) unread++;
+  });
+  let b = document.getElementById('bell-badge');
+  if (!unread) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('span');
+    b.id = 'bell-badge';
+    bell.style.position = 'relative';
+    bell.appendChild(b);
+  }
+  b.textContent = unread > 9 ? '9+' : String(unread);
+}
+
+function initBell(): void {
+  const bell = document.getElementById('btn-bell');
+  if (!bell) return;
+  const drop = document.createElement('div');
+  drop.id = 'bell-drop';
+  document.body.appendChild(drop);
+  bell.onclick = async () => {
+    if (drop.style.display === 'block') { drop.style.display = 'none'; return; }
+    let d: any;
+    try { d = await api('/api/notifications'); } catch (e) { return; }
+    const list = d.notifications || [];
+    drop.innerHTML = '<div class="bd-h"><b>Уведомления</b>' +
+      '<span style="flex:1"></span>' +
+      '<button class="btn sm" id="bell-clear">Очистить</button></div>' +
+      (list.length ? list.slice(0, 12).map((n: any) =>
+        '<div class="bell-item ' + esc(n.level || 'info') + '">' +
+        '<span class="faint" style="width:86px;flex-shrink:0">' +
+        esc((n.ts || '').slice(5, 16)) + '</span><span>' + esc(n.text) +
+        '</span></div>').join('')
+        : '<div class="empty" style="padding:14px">уведомлений нет</div>');
+    const rect = bell.getBoundingClientRect();
+    drop.style.top = (rect.bottom + 8) + 'px';
+    drop.style.right = (window.innerWidth - rect.right) + 'px';
+    drop.style.display = 'block';
+    (document.getElementById('bell-clear') as HTMLElement)!.onclick = async () => {
+      try { await api('/api/notifications/read', { method: 'POST', body: {} }); } catch (e) {}
+      localStorage.setItem('hp_last_read', String(Date.now()));
+      drop.style.display = 'none';
+      updateBellBadge();
+    };
+    localStorage.setItem('hp_last_read', String(Date.now()));
+    updateBellBadge();
+  };
+}
+
+/* ---------- глобальный поиск ---------- */
+let gsRes: any[] = [];
+
+function initGlobalSearch(): void {
+  const inp = document.getElementById('global-search') as HTMLInputElement;
+  if (!inp) return;
+  const drop = document.createElement('div');
+  drop.id = 'gs-drop';
+  document.body.appendChild(drop);
+  const hide = () => { setTimeout(() => { drop.style.display = 'none'; }, 150); };
+  inp.addEventListener('input', async () => {
+    const q = inp.value.trim();
+    if (q.length < 2) { drop.style.display = 'none'; return; }
+    let d: any;
+    try { d = await api('/api/search?q=' + encodeURIComponent(q)); }
+    catch (e) { drop.style.display = 'none'; return; }
+    const res = d.results || [];
+    if (!res.length) { drop.style.display = 'none'; return; }
+    drop.innerHTML = res.map((r: any, i: number) =>
+      '<div class="gs-item" data-i="' + i + '">' +
+      '<span class="pill gray">' + esc(r.hint) + '</span> ' + esc(r.title) + '</div>').join('');
+    gsRes = res;
+    const rect = inp.getBoundingClientRect();
+    drop.style.left = rect.left + 'px';
+    drop.style.top = (rect.bottom + 6) + 'px';
+    drop.style.width = Math.max(rect.width, 300) + 'px';
+    drop.style.display = 'block';
+    drop.querySelectorAll('.gs-item').forEach((item) => {
+      (item as HTMLElement).onclick = () => {
+        const r = gsRes[+(item as HTMLElement).dataset.i!];
+        inp.value = ''; drop.style.display = 'none';
+        if (r.type === 'site') { go('sites'); (window as any).siteDlg(r.site_id); }
+        else go(r.page);
+      };
+    });
+  });
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Escape') { inp.value = ''; hide(); } });
+  inp.addEventListener('blur', hide);
+}
+
+/* ---------- запуск ---------- */
+export function updateLoginHint(): void {
+  const el = document.getElementById('lg-hint');
+  if (el) el.style.display = session.defaultPw ? '' : 'none';
+}
+
+function fillIcons(): void {
+  document.querySelectorAll('[data-icon]').forEach((el) => {
+    el.innerHTML = icon((el as HTMLElement).dataset.icon!,
+      el.classList.contains('sm') ? 18 : 22);
+  });
+}
+
+async function boot(): Promise<void> {
+  let theme = 'light';
+  try { theme = localStorage.getItem('hp_theme') || 'light'; } catch (e) {}
+  applyTheme(theme);
+  buildNav();
+  fillIcons();
+  ($('#login-form') as HTMLFormElement)!.addEventListener('submit', doLogin as EventListener);
+  ($('#btn-logout') as HTMLButtonElement)!.onclick = doLogout;
+  ($('#btn-theme') as HTMLButtonElement)!.onclick = () => {
+    const cur = document.documentElement.getAttribute('data-theme');
+    applyTheme(cur === 'dark' ? 'light' : 'dark');
+  };
+  initGlobalSearch();
+  initBell();
+  const back = document.createElement('div');
+  back.id = 'nav-back';
+  back.onclick = () => { ($('#sidebar') as HTMLElement)!.classList.remove('open');
+    document.body.classList.remove('nav-open'); };
+  document.body.appendChild(back);
+  ($('#btn-menu') as HTMLElement)!.onclick = () => {
+    ($('#sidebar') as HTMLElement)!.classList.toggle('open');
+    document.body.classList.toggle('nav-open');
+  };
+  // статус сессии спрашиваем у /api/login-state — он ВСЕГДА отвечает 200,
+  // поэтому до входа в консоли нет ни одного 401 (мусор от /api/me и
+  // /api/notifications пропал). Там же версия — для шапки экрана входа.
+  const st = await fetch('/api/login-state').then((r) => r.json())
+    .catch(() => null);
+  session.defaultPw = !!(st && st.default_password);
+  updateLoginHint();
+  ($('#lg-ver') as HTMLElement)!.textContent = st && st.version
+    ? 'v' + st.version : '';
+  if (!st || !st.auth) { showLogin(); return; }
+  // сессия есть — можно нагружать API (401 здесь больше не бывает)
+  try {
+    Object.assign(me, await api('/api/me'));
+  } catch (e) { showLogin(); return; }
+  setUnauthorizedHook(showLogin);
+  buildNav();  // me.expert узнали только что — меню с учётом режима
+  ($('#sb-ver') as HTMLElement)!.textContent = 'v' + me.version;
+  ($('#sb-foot') as HTMLElement)!.innerHTML =
+    'Сервер работает<br>Версия панели: ' + esc(me.version);
+  ($('#login') as HTMLElement)!.classList.add('hidden');
+  ($('#app') as HTMLElement)!.classList.remove('hidden');
+  updateBellBadge();  // колокольчик — только при подтверждённой сессии
+  const h = location.hash.slice(1);
+  go(NAV.some((n) => n.id === h) ? h : 'overview');
+  if (me.must_change_password) setTimeout(forcePwModal, 400);
+  setInterval(async () => {
+    if (location.hash.slice(1) === 'overview' && !isModalOpen())
+      go('overview');
+  }, 15000);
+}
+
+hooks.updateLoginHint = updateLoginHint;
+setBellUpdater(updateBellBadge);
+
+document.addEventListener('DOMContentLoaded', boot);
+
+export { updateBellBadge, forcePwModal, wizardWelcome };

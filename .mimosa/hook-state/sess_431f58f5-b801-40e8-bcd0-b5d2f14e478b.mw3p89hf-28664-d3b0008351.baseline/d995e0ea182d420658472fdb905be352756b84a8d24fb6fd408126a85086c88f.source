@@ -1,0 +1,461 @@
+/* ============ Страница: Настройки (пароль, уведомления, 2FA, диск, миграция) ============ */
+import { api } from '../api/client.js';
+import { icon } from '../core/icons.js';
+import { esc, $ } from '../core/format.js';
+import { me, session, hooks } from '../core/state.js';
+import { registerPage, go } from '../core/router.js';
+import { applyTheme } from '../core/theme.js';
+import { toast, toastErr } from '../components/toast.js';
+import { modal, closeModal, confirmDlg } from '../components/modal.js';
+import { pwField, pwBindStrength } from '../components/pw.js';
+let ntSecChangedVal = false;
+async function pgSettings(c) {
+    let d, log, sess, totp;
+    try {
+        d = await api('/api/settings');
+        [log, sess, totp] = await Promise.all([
+            api('/api/panellog').then((x) => x.log),
+            api('/api/sessions').catch(() => null),
+            api('/api/totp/status').catch(() => null)
+        ]);
+    }
+    catch (e) {
+        c.innerHTML = '';
+        toastErr(e);
+        return;
+    }
+    const s = d.settings;
+    const n = s.notify || { email: {}, tg: {} };
+    setTimeout(notifyToggleBodies, 0);
+    c.innerHTML =
+        '<div class="split">' +
+            '<div><div class="card"><div class="card-h"><span class="card-t">Панель</span></div>' +
+            '<div class="kv"><b>Версия</b><span>' + me.version + '</span>' +
+            '<b>Режим</b><span>' + (me.demo ? 'демо (изменения не влияют на систему)' : 'рабочий') + '</span>' +
+            '<b>Домашняя папка</b><span class="mono">' + esc(me.home) + '</span>' +
+            '<b>Корень сайтов</b><span class="mono">' + esc(me.www_root) + '</span></div>' +
+            '<label style="margin-top:12px">Тема интерфейса</label><select id="set-theme" onchange="saveTheme()">' +
+            '<option value="dark"' + (s.theme === 'dark' ? ' selected' : '') + '>тёмная</option>' +
+            '<option value="light"' + (s.theme === 'light' ? ' selected' : '') + '>светлая</option></select>' +
+            '<label>Хранить резервных копий (шт.)</label><input type="number" id="set-ret" value="' + esc(s.backup_retention) + '">' +
+            '<label>Порт панели (после смены перезапустите)</label><input type="number" id="set-port" value="' + esc(s.panel_port) + '">' +
+            '<label>Интервал проверок живучести, сек (15–3600)</label><input type="number" id="set-health" value="' + esc(s.health_interval || 60) + '">' +
+            '<label class="check"><input type="checkbox" id="set-fm"' + (s.fm_restricted !== false ? ' checked' : '') + '> Ограничить файловый менеджер (/var/www, /etc/…, папка панели)</label>' +
+            '<label class="check"><input type="checkbox" id="set-expert"' + (me.expert ? ' checked' : '') + '> Режим «Эксперт» — показывать командную строку, SQL-консоль и редакторы конфигов</label>' +
+            '<label class="check"><input type="checkbox" id="set-weekly"' + (s.weekly_report_enabled ? ' checked' : '') + '> Еженедельный отчёт (понедельник 09:00, на e-mail/TG)</label>' +
+            '<label class="check"><input type="checkbox" id="set-status"' + (s.public_status ? ' checked' : '') + '> Публичная страница <span class="mono">/status</span> для внешних мониторингов (JSON без секретов)</label>' +
+            '<div class="faint" style="font-size:11.5px;margin-top:4px">По умолчанию включён «Простой» режим: скрыты инструменты для опытных, интерфейс короче.</div>' +
+            '<button class="btn primary" style="margin-top:12px" onclick="settingsSave()">' + icon('check', 15) + ' Сохранить</button></div>' +
+            notifyCard(n) +
+            '<div class="card"><div class="card-h"><span class="card-t">Журнал панели (аудит)</span></div>' +
+            '<div class="logbox" style="max-height:260px">' + esc((log || []).map((l) => l.ts + '  ' + l.text).join('\n')) + '</div></div></div>' +
+            '<div><div class="card"><div class="card-h"><span class="card-t">Смена пароля администратора</span></div>' +
+            // парольные поля внутри формы — иначе браузер пишет в консоль
+            // предупреждение «Password field is not contained in a form»
+            '<form class="modal-form" onsubmit="return false">' +
+            '<div class="field"><label>Текущий пароль</label><input type="password" id="pw-old" autocomplete="current-password"></div>' +
+            pwField('pw-new', { label: 'Новый пароль',
+                hint: 'Минимум 8 символов. Нажмите кнопку генерации — надёжный пароль создастся сам, скопируйте его.' }) +
+            '<button class="btn primary" style="margin-top:10px" onclick="changePass()">Сменить пароль</button></form></div>' +
+            securityCard(totp, sess) + migrateCard() +
+            '<div class="card"><div class="card-h"><span class="card-t">Перезагрузка сервера</span></div>' +
+            '<div style="font-size:13px;line-height:1.6;color:var(--muted)">Полная перезагрузка сервера: панель и сайты будут недоступны 1–2 минуты.</div>' +
+            '<button class="btn danger" style="margin-top:10px" onclick="serverRebootDlg()">' + icon('refresh', 15) + ' Перезагрузить сервер</button></div>' +
+            '<div class="card" id="disk-card"><div class="card-h"><span class="card-t">Диск: куда уходит место</span></div>' +
+            '<div class="empty">Загрузка…</div></div>' +
+            '<div class="card"><div class="card-h"><span class="card-t">Как это работает</span></div>' +
+            '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' +
+            'Рабочий режим: панель запускается от root (обычно как systemd-служба hostpanel) и управляет nginx, Apache, PHP-FPM, systemd, certbot и MySQL напрямую. ' +
+            'Все изменения конфигов валидируются (nginx -t и т.п.) и откатываются при ошибке, каждая операция пишется в журнал аудита.<br><br>' +
+            'Демо-режим: полностью безопасен, конфиги не трогаются, а сайты, логи и статистика создаются в домашней папке панели.</div></div></div></div>';
+    pwBindStrength('pw-new'); // в оригинале бинд на загрузке модуля (не работал) — здесь биндим после отрисовки
+    loadDiskCard();
+}
+/* ---------- диск: куда уходит место ---------- */
+async function loadDiskCard() {
+    const el = document.getElementById('disk-card');
+    if (!el)
+        return;
+    let d;
+    try {
+        d = await api('/api/disk');
+    }
+    catch (e) {
+        el.innerHTML = '';
+        return;
+    }
+    if (d.demo) {
+        el.innerHTML = '<div class="card-h"><span class="card-t">Диск</span></div>' +
+            '<div class="notice info">демо-данные — на рабочем сервере здесь будет разбор занятого места</div>';
+        return;
+    }
+    const rows = (d.top || []).map((t) => '<div class="row" style="align-items:center;gap:10px;padding:3px 0">' +
+        '<span style="width:200px" title="' + esc(t.path) + '">' + esc(t.label) + '</span>' +
+        '<b style="width:90px;text-align:right">' + t.gb + ' ГБ</b>' +
+        '<span class="muted faint" style="font-size:11.5px">' + esc(t.path) + '</span></div>').join('');
+    const btn = (w, label) => (d.cleanable && d.cleanable[w]) ?
+        '<button class="btn sm" onclick="diskClean(\'' + w + '\')">' + label + '</button>' : '';
+    el.innerHTML = '<div class="card-h"><span class="card-t">Диск</span>' +
+        '<span class="card-spacer"></span>' +
+        '<span class="pill ' + (d.percent > 85 ? 'err' : d.percent > 70 ? 'warn' : 'ok') +
+        '">занято ' + d.percent + '% · ' + d.used_gb + ' из ' + d.total_gb + ' ГБ</span></div>' +
+        '<div style="padding:6px 8px">' + rows + '</div>' +
+        '<div class="row" style="padding:0 8px 10px;flex-wrap:wrap;gap:6px">' +
+        btn('apt', 'Очистить кэш apt') + btn('journal', 'Урезать журнал (7 дней)') +
+        btn('tmp', 'Очистить tmp панели') + btn('backups', 'Удалить старые копии') + '</div>';
+}
+async function diskClean(what) {
+    const names = { apt: 'кэш apt', journal: 'журнал systemd (оставить 7 дней)',
+        tmp: 'временные файлы панели', backups: 'старые резервные копии (остать последние 3)' };
+    confirmDlg('Очистить: ' + (names[what] || what), 'Выполнить очистку «' + (names[what] || what) + '»?', async () => {
+        try {
+            const r = await api('/api/disk/clean', { method: 'POST', body: { what } });
+            toast(esc(r.message));
+            loadDiskCard();
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    }, false);
+}
+async function settingsSave() {
+    const expEl = $('#set-expert');
+    const expChanged = !!expEl && expEl.checked !== !!me.expert;
+    try {
+        const r = await api('/api/settings/save', { method: 'POST', body: {
+                theme: $('#set-theme').value,
+                backup_retention: +$('#set-ret').value,
+                panel_port: +$('#set-port').value,
+                health_interval: +$('#set-health').value,
+                fm_restricted: $('#set-fm').checked,
+                expert_mode: expEl ? expEl.checked : undefined,
+                weekly_report_enabled: $('#set-weekly') ? $('#set-weekly').checked : undefined,
+                public_status: $('#set-status') ? $('#set-status').checked : undefined,
+                notify: { security: { enabled: $('#nt-sec') ? $('#nt-sec').checked : undefined } }
+            } });
+        toast(esc(r.message));
+        if (expChanged) {
+            setTimeout(() => location.reload(), 700);
+        }
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function saveTheme() {
+    settingsSave();
+    applyTheme($('#set-theme').value);
+}
+async function changePass() {
+    try {
+        const r = await api('/api/password/change', { method: 'POST', body: {
+                old: $('#pw-old').value, new: $('#pw-new').value
+            } });
+        $('#pw-old').value = '';
+        $('#pw-new').value = '';
+        session.defaultPw = false;
+        hooks.updateLoginHint();
+        toast('Пароль изменён');
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+/* ---------- уведомления: e-mail и Telegram ---------- */
+function notifyCard(n) {
+    const e = n.email || {}, t = n.tg || {};
+    const inp = (id, label, val, type) => '<div class="field"><label>' + label + '</label>' +
+        '<input type="' + (type || 'text') + '" id="' + id + '" value="' + esc(val || '') + '"></div>';
+    return '<div class="card"><div class="card-h"><span class="card-t">Уведомления о проблемах</span></div>' +
+        '<div class="faint" style="font-size:12.5px;line-height:1.55;margin-bottom:6px">Панель сообщит на e-mail и в Telegram, ' +
+        'когда сайт перестанет отвечать, когда восстановится и по итогам каждого автобэкапа.</div>' +
+        '<label class="check"><input type="checkbox" id="nt-sec"' + ((n.security || {}).enabled ? ' checked' : '') +
+        ' onchange="ntSecChanged(this.checked)"> ' +
+        'О безопасности: входы в панель и блокировки fail2ban (Telegram)</label>' +
+        '<label class="check"><input type="checkbox" id="nt-e-on"' + (e.enabled ? ' checked' : '') +
+        ' onchange="document.getElementById(\'nt-e-body\').style.display=this.checked?\'\':\'none\'"> ' +
+        'E-mail (письмо через SMTP)</label>' +
+        '<div id="nt-e-body" style="margin:4px 0 8px">' +
+        inp('nt-e-host', 'SMTP-сервер (например smtp.yandex.ru)', e.host) +
+        inp('nt-e-port', 'Порт (465 — SSL, 587 — STARTTLS)', e.port, 'number') +
+        inp('nt-e-user', 'Логин SMTP', e.user) +
+        inp('nt-e-pass', 'Пароль SMTP (или пароль приложения)', e.pass, 'password') +
+        inp('nt-e-from', 'От кого (адрес в письме)', e.from || e.user) +
+        inp('nt-e-to', 'Кому присылать уведомления', e.to) +
+        '</div>' +
+        '<label class="check"><input type="checkbox" id="nt-t-on"' + (t.enabled ? ' checked' : '') +
+        ' onchange="document.getElementById(\'nt-t-body\').style.display=this.checked?\'\':\'none\'"> ' +
+        'Telegram (бот)</label>' +
+        '<div id="nt-t-body" style="margin:4px 0 8px">' +
+        inp('nt-t-token', 'Токен бота (от @BotFather)', t.token) +
+        inp('nt-t-chat', 'Chat ID (узнать у @userinfobot)', t.chat) +
+        '</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="btn primary" onclick="notifySave()">' + icon('check', 15) + ' Сохранить</button>' +
+        '<button class="btn" onclick="notifyTest()">' + icon('bell', 15) + ' Отправить тест</button></div>' +
+        '<div class="faint" style="font-size:12px;margin-top:6px">Тест отправит сообщение во все включённые каналы — удобно проверить настройки до сбоя.</div></div>';
+}
+function ntSecChanged(v) { ntSecChangedVal = v; }
+function notifyToggleBodies() {
+    const e = document.getElementById('nt-e-on'), t = document.getElementById('nt-t-on');
+    if (e)
+        document.getElementById('nt-e-body').style.display = e.checked ? '' : 'none';
+    if (t)
+        document.getElementById('nt-t-body').style.display = t.checked ? '' : 'none';
+}
+async function notifySave() {
+    try {
+        const r = await api('/api/settings/save', { method: 'POST', body: { notify: {
+                    email: { enabled: $('#nt-e-on').checked, host: $('#nt-e-host').value,
+                        port: +$('#nt-e-port').value || 587, user: $('#nt-e-user').value,
+                        pass: $('#nt-e-pass').value, from: $('#nt-e-from').value,
+                        to: $('#nt-e-to').value },
+                    tg: { enabled: $('#nt-t-on').checked, token: $('#nt-t-token').value,
+                        chat: $('#nt-t-chat').value }
+                } } });
+        toast(esc(r.message));
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+async function notifyTest() {
+    try {
+        await notifySave();
+        const r = await api('/api/notify/test', { method: 'POST', body: {} });
+        toast(esc(r.message));
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+/* ---------- безопасность: 2FA и активные сессии ---------- */
+function shortUa(ua) {
+    const m = (ua || '').match(/(Edg|Chrome|Firefox|Safari|OPR)\/[\d.]+/);
+    if (m)
+        return m[0];
+    if (/python|curl|wget/i.test(ua || ''))
+        return (ua || '').slice(0, 40);
+    return (ua || '').slice(0, 44) || 'неизвестное устройство';
+}
+function securityCard(totp, sess) {
+    const on = !!(totp && totp.enabled);
+    const cur = sess ? sess.current : '';
+    const rows = ((sess && sess.sessions) || []).map((x) => {
+        const mine = x.sid === cur;
+        const t = new Date((x.seen || 0) * 1000);
+        const when = isNaN(t.getTime()) ? '' : t.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        return '<div class="row" style="align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--border)">' +
+            '<div style="flex:1;min-width:0"><b>' + esc(shortUa(x.ua)) + '</b>' +
+            '<div class="muted" style="font-size:12px">' + esc(x.ip || '') +
+            (when ? ' · активность ' + esc(when) : '') + '</div></div>' +
+            (mine ? '<span class="pill ok">это вы</span>'
+                : '<button class="btn sm" onclick="sessionDrop(\'' + esc(x.sid) + '\')">Завершить</button>') +
+            '</div>';
+    }).join('');
+    return '<div class="card"><div class="card-h"><span class="card-t">Безопасность входа</span></div>' +
+        '<div class="row" style="align-items:center;gap:10px;padding:2px 0 8px">' +
+        '<span class="muted" style="font-size:13px">Двухфакторная аутентификация (приложение-аутентификатор)</span>' +
+        (on ? '<span class="pill ok">включена</span>'
+            : '<span class="pill warn">выключена</span>') +
+        (on
+            ? '<button class="btn sm" onclick="totpDisableDlg()">Выключить</button>'
+            : '<button class="btn sm primary" onclick="totpEnableDlg()">Включить</button>') + '</div>' +
+        '<div class="faint" style="font-size:12px;line-height:1.55;margin-bottom:6px">Второй шаг защиты: ' +
+        'кроме пароля нужен код из приложения (Google Authenticator, Яндекс.Ключ и т.п.). ' +
+        'Панель доступна из интернета — с 2FA украденный пароль не даст войти.</div>' +
+        '<b style="font-size:13px">Активные сессии</b>' +
+        (rows || '<div class="empty">Нет активных сессий</div>') +
+        '<div style="margin-top:8px"><button class="btn" onclick="dropOtherSessions()">' +
+        icon('logout', 14) + ' Выйти на всех других устройствах</button></div></div>';
+}
+async function sessionDrop(sid) {
+    try {
+        const r = await api('/api/sessions/drop', { method: 'POST', body: { sid } });
+        toast(esc(r.message));
+        go('settings');
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+async function dropOtherSessions() {
+    try {
+        const d = await api('/api/sessions');
+        const others = (d.sessions || []).filter((x) => x.sid !== d.current);
+        for (const x of others)
+            await api('/api/sessions/drop', { method: 'POST', body: { sid: x.sid } });
+        toast(others.length ? ('Завершено сессий: ' + others.length)
+            : 'Других сессий нет');
+        go('settings');
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function totpEnableDlg() {
+    api('/api/totp/setup').then((d) => {
+        modal('Включить двухфакторную аутентификацию', '<div class="faint" style="font-size:13px;line-height:1.6;margin-bottom:8px">' +
+            '1. Откройте приложение-аутентификатор и отсканируйте код (или введите ключ вручную).<br>' +
+            '2. Введите 6-значный код из приложения для подтверждения.</div>' +
+            '<div id="totp-qr" style="text-align:center;min-height:60px;background:#fff;border-radius:10px;padding:10px;margin-bottom:10px">' +
+            (d.qr ? '<div class="muted" style="color:#333">Создаём QR-код…</div>' : '') + '</div>' +
+            '<div class="field"><label>Ключ для ручного ввода</label>' +
+            '<div class="row" style="align-items:center;gap:8px"><b class="mono" style="flex:1;word-break:break-all">' +
+            esc(d.secret) + '</b>' +
+            '<button class="btn sm" data-v="' + esc(d.secret) + '" onclick="copyText(this.dataset.v, this)">' +
+            icon('file', 13) + '</button></div></div>' +
+            '<div class="field"><label>Код из приложения (6 цифр)</label>' +
+            '<input type="text" id="totp-code" class="mono" maxlength="6" inputmode="numeric" placeholder="123456" autocomplete="one-time-code"></div>', '<button class="btn primary" onclick="totpConfirm(\'' + esc(d.secret) + '\')">' +
+            icon('check', 15) + ' Включить</button>' +
+            '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+        if (d.qr) {
+            api('/api/totp/qr?uri=' + encodeURIComponent(d.uri)).then((q) => {
+                const el = document.getElementById('totp-qr');
+                if (el)
+                    el.innerHTML = q.svg.replace('<svg', '<svg style="width:190px;height:190px"');
+            }).catch(() => { });
+        }
+        setTimeout(() => { const el = document.getElementById('totp-code'); if (el)
+            el.focus(); }, 300);
+    }).catch((e) => toastErr(e));
+}
+async function totpConfirm(secret) {
+    try {
+        const r = await api('/api/totp/enable', { method: 'POST', body: {
+                secret, code: $('#totp-code').value
+            } });
+        closeModal();
+        toast(esc(r.message));
+        go('settings');
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function totpDisableDlg() {
+    modal('Выключить 2FA', '<div class="notice warn">Без 2FA для входа хватит одного пароля — панель станет уязвимее.</div>' +
+        '<div class="field"><label>Подтвердите текущим паролем</label>' +
+        '<input type="password" id="totp-pw" autocomplete="current-password"></div>', '<button class="btn danger" onclick="totpDisable()">Выключить</button>' +
+        '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+}
+async function totpDisable() {
+    try {
+        const r = await api('/api/totp/disable', { method: 'POST', body: {
+                password: $('#totp-pw').value
+            } });
+        closeModal();
+        toast(esc(r.message));
+        go('settings');
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+/* ---------- перенос настроек на другой сервер ---------- */
+function migrateCard() {
+    return '<div class="card"><div class="card-h"><span class="card-t">Перенос на другой сервер</span></div>' +
+        '<div class="faint" style="font-size:12.5px;line-height:1.6;margin-bottom:8px">Файл настроек содержит: ' +
+        'параметры панели, задачи планировщика, список сайтов (без файлов), ' +
+        'почтовые домены и адреса ящиков, настройки уведомлений. ' +
+        'Пароли баз и ящиков панель не хранит — их задаёте заново; SSL-сертификаты ' +
+        'выпустите на новом сервере. Файл содержит пароль SMTP и ключ 2FA — храните бережно.</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="btn primary" onclick="exportSettings()">' + icon('down', 15) + ' Скачать настройки</button>' +
+        '<button class="btn" onclick="importDlg()">' + icon('up', 15) + ' Импортировать из файла</button></div></div>';
+}
+async function exportSettings() {
+    try {
+        const d = await api('/api/settings/export');
+        const blob = new Blob([JSON.stringify(d.data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'hostpanel-settings-' +
+            new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+        toast('Файл настроек скачан');
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function importDlg() {
+    modal('Импорт настроек', '<div class="notice info">Выберите файл, скачанный на старом сервере. ' +
+        'Настройки применятся, задачи заменятся, отсутствующие сайты будут созданы ' +
+        '(файлы и базы в них загрузите отдельно).</div>' +
+        '<div class="field"><label>Файл настроек (JSON)</label>' +
+        '<input type="file" id="imp-file" accept=".json,application/json"></div>' +
+        '<div id="imp-preview"></div>', '<button class="btn primary" id="imp-go" style="display:none" onclick="importApply()">' +
+        icon('check', 15) + ' Применить</button>' +
+        '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+    let impData = null;
+    document.getElementById('imp-file').addEventListener('change', (ev) => {
+        const f = ev.target.files && ev.target.files[0];
+        if (!f)
+            return;
+        if (f.size > 2 * 1024 * 1024) {
+            toast('Файл больше 2 МБ — это не файл настроек', 'warn');
+            return;
+        }
+        const rd = new FileReader();
+        rd.onload = () => {
+            try {
+                const data = JSON.parse(String(rd.result));
+                if (data.panel !== 'HostPanel')
+                    throw new Error('это не экспорт HostPanel');
+                impData = data;
+                const sites = (data.sites || []).length;
+                const cron = (data.cron || []).length;
+                const mailD = ((data.mail || {}).domains || []).length;
+                document.getElementById('imp-preview').innerHTML =
+                    '<div class="notice ok">Файл от ' + esc(data.exported || '?') +
+                        ' (панель ' + esc(data.version || '?') + '): сайтов — ' + sites +
+                        ', задач — ' + cron + ', почтовых доменов — ' + mailD + '</div>';
+                document.getElementById('imp-go').style.display = '';
+            }
+            catch (e) {
+                toast('Не удалось прочитать файл: ' + e.message, 'warn');
+            }
+        };
+        rd.readAsText(f);
+    });
+    // importApply берёт данные из этого замыкания через общий слот ниже
+    importApplyData = () => impData;
+    impData = null;
+}
+let importApplyData = () => null;
+async function importApply() {
+    const data = importApplyData();
+    if (!data)
+        return;
+    try {
+        const r = await api('/api/settings/import', { method: 'POST',
+            body: { data } });
+        const box = document.getElementById('imp-preview');
+        if (box)
+            box.innerHTML = '<div class="notice ok">' + esc(r.summary || 'Готово') + '</div>' +
+                (r.report || []).map((x) => '<div class="muted" style="font-size:12.5px">• ' + esc(x) + '</div>').join('');
+        document.getElementById('imp-go').style.display = 'none';
+        importApplyData = () => null;
+        toast(esc(r.summary || 'Импорт выполнен'));
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function serverRebootDlg() {
+    confirmDlg('Перезагрузка сервера', 'Действительно перезагрузить <b>весь сервер</b>? Панель и сайты будут недоступны 1–2 минуты.', async () => {
+        try {
+            const r = await api('/api/system/reboot', { method: 'POST', body: { confirm: 'reboot' } });
+            toast(esc(r.message));
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    });
+}
+registerPage('settings', pgSettings);
+export { pgSettings, loadDiskCard, diskClean, settingsSave, saveTheme, changePass, notifyCard, ntSecChanged, notifyToggleBodies, notifySave, notifyTest, shortUa, securityCard, sessionDrop, dropOtherSessions, totpEnableDlg, totpConfirm, totpDisableDlg, totpDisable, migrateCard, exportSettings, importDlg, importApply, serverRebootDlg };

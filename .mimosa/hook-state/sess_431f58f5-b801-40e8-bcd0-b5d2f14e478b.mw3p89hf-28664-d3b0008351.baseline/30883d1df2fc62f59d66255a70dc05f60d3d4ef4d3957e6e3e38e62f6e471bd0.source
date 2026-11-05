@@ -1,0 +1,39 @@
+#!/bin/bash
+# Деплой нового Vue-фронтенда + SPA-fallback на сервер HostPanel.
+# Запускать после успешного npm run build.
+set -e
+SRV=root@193.232.90.85
+PW="d6GQNN73LFS4-KR3"
+PLINK="/c/Program Files/PuTTY/plink"
+PSCP="/c/Program Files/PuTTY/pscp"
+
+echo "== 1. Упаковка dist и server.py =="
+cd /c/hostpanel
+rm -rf deploy-tmp && mkdir deploy-tmp
+cp -r vue-src/dist deploy-tmp/web
+cp server-pull/panel/server.py deploy-tmp/server.py
+cd deploy-tmp && tar czf deploy.tar.gz web server.py && cd ..
+
+echo "== 2. Загрузка на сервер =="
+"$PSCP" -batch -pw "$PW" deploy-tmp/deploy.tar.gz "$SRV:/root/deploy.tar.gz"
+
+echo "== 3. Установка на сервере =="
+"$PLINK" -ssh -batch -pw "$PW" "$SRV" "set -e
+  cd /root && rm -rf deploy-extract && mkdir deploy-extract
+  tar xzf deploy.tar.gz -C deploy-extract
+  # бэкап старого web
+  rm -rf /opt/hostpanel/panel/web-backup-old
+  [ -d /opt/hostpanel/panel/web ] && mv /opt/hostpanel/panel/web /opt/hostpanel/panel/web-backup-old
+  rm -rf /opt/hostpanel/panel/web
+  cp -r deploy-extract/web /opt/hostpanel/panel/web
+  cp /opt/hostpanel/panel/server.py /opt/hostpanel/panel/server.py.bak-spa 2>/dev/null || true
+  cp deploy-extract/server.py /opt/hostpanel/panel/server.py
+  chown -R hostpanel:hostpanel /opt/hostpanel/panel/web /opt/hostpanel/panel/server.py
+  systemctl restart hostpanel
+  sleep 3
+  systemctl is-active hostpanel
+  curl -s -o /dev/null -w 'panel / -> %{http_code}\n' http://127.0.0.1:8080/
+  curl -s -o /dev/null -w 'panel /sites -> %{http_code}\n' http://127.0.0.1:8080/sites
+  curl -s http://127.0.0.1:8080/api/login-state
+"
+echo "== Готово =="

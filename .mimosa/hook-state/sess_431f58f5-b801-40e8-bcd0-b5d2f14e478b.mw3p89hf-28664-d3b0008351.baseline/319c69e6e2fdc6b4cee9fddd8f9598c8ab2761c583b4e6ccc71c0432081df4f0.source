@@ -1,0 +1,113 @@
+/* ============ Глобальный реестр обработчиков ============
+   Шаблоны страниц используют inline onclick/onchange/oninput — по ним
+   браузер ищет функции на window. Все обработчики живут в модулях,
+   отсюда они публикуются одним списком. Ничего другого в window нет. */
+import { $, cronHuman } from './format';
+import { copyText } from '../components/clipboard';
+import { pwGenerate, pwToggle } from '../components/pw';
+import { closeModal, runConfirm } from '../components/modal';
+import { go } from './router';
+
+import * as mon from '../pages/monitoring';
+import * as sites from '../pages/sites';
+import * as dbs from '../pages/dbs';
+import * as mail from '../pages/mail';
+import * as files from '../pages/files';
+import * as backups from '../pages/backups';
+import * as cron from '../pages/cron';
+import * as fw from '../pages/firewall';
+import * as pkg from '../pages/packages';
+import * as sw from '../pages/software';
+import * as swset from '../pages/swset';
+import * as set from '../pages/settings';
+import * as term from '../pages/term';
+import * as boot from '../boot';
+
+export const HANDLERS: Record<string, any> = {
+  // общие
+  $: $, go: go, cronHuman: cronHuman, copyText: copyText,
+  pwGenerate: pwGenerate, pwToggle: pwToggle, closeModal: closeModal, runConfirm: runConfirm,
+  // обзор / живучесть / службы
+  clearNotices: mon.clearNotices,
+  svcRestart: mon.svcRestart, svcLogs: mon.svcLogs, svcLogsReload: mon.svcLogsReload,
+  // сайты
+  wizardSite: sites.wizardSite, wzUpdate: sites.wzUpdate, wizardCreate: sites.wizardCreate,
+  wizardSubdomain: sites.wizardSubdomain, subCreate: sites.subCreate,
+  siteDlg: sites.siteDlg, stTab: sites.stTab, stPhpChanged: sites.stPhpChanged,
+  sslDnsCheck: sites.sslDnsCheck,
+  siteSave: sites.siteSave, toggleMaintenance: sites.toggleMaintenance,
+  openSite: sites.openSite, nodeAct: sites.nodeAct, nodeLogsDlg: sites.nodeLogsDlg,
+  defaultSiteDlg: sites.defaultSiteDlg, defaultSiteSave: sites.defaultSiteSave,
+  siteAuditDlg: sites.siteAuditDlg, sslIssue: sites.sslIssue, sslDel: sites.sslDel,
+  loadSiteConf: sites.loadSiteConf, saveSiteConf: sites.saveSiteConf,
+  secAddCountry: sites.secAddCountry, secRemoveCountry: sites.secRemoveCountry,
+  secAddIp: sites.secAddIp, secRemoveIp: sites.secRemoveIp, secSave: sites.secSave,
+  secGeoInstall: sites.secGeoInstall,
+  siteLog: sites.siteLog, siteLogRefresh: sites.siteLogRefresh,
+  applyLogFilters: sites.applyLogFilters, logsClear: sites.logsClear,
+  stFpmReco: sites.stFpmReco, siteDnsFullDlg: sites.siteDnsFullDlg,
+  importArchiveDlg: sites.importArchiveDlg, importArchiveGo: sites.importArchiveGo,
+  toggleSite: sites.toggleSite, delSite: sites.delSite,
+  pmaSiteDlg: sites.pmaSiteDlg, pmaSiteOpen: sites.pmaSiteOpen,
+  pmaSiteInstall: sites.pmaSiteInstall, openSiteFiles: sites.openSiteFiles,
+  // базы данных
+  dbFilterSet: dbs.dbFilterSet, dbCreateDlg: dbs.dbCreateDlg, dbCreate: dbs.dbCreate,
+  dbImportDlg: dbs.dbImportDlg, dbImportRun: dbs.dbImportRun,
+  dbPassDlg: dbs.dbPassDlg, dbPwUserPick: dbs.dbPwUserPick, dbPassSave: dbs.dbPassSave,
+  dbSqlDlg: dbs.dbSqlDlg, sqlHistPick: dbs.sqlHistPick, dbSqlRun: dbs.dbSqlRun,
+  dbDel: dbs.dbDel,
+  // почта
+  mailInstallAll: mail.mailInstallAll, mailDomainDlg: mail.mailDomainDlg,
+  mailDomainAdd: mail.mailDomainAdd, mailDomainDel: mail.mailDomainDel,
+  mailBoxDlg: mail.mailBoxDlg, mailBoxAdd: mail.mailBoxAdd,
+  mailBoxPwDlg: mail.mailBoxPwDlg, mailBoxPw: mail.mailBoxPw,
+  mailBoxDel: mail.mailBoxDel, mailBoxTest: mail.mailBoxTest,
+  mailDnsDlg: mail.mailDnsDlg, mailDkimGen: mail.mailDkimGen, genPass: mail.genPass,
+  // файловый менеджер
+  fmGo: files.fmGo, fmMkdirDlg: files.fmMkdirDlg, fmMkdir: files.fmMkdir,
+  fmEdit: files.fmEdit, fmSave: files.fmSave, fmDel: files.fmDel,
+  fmRename: files.fmRename, fmRenameDo: files.fmRenameDo,
+  fmUpload: files.fmUpload, fmExtract: files.fmExtract,
+  // бэкапы
+  createBackupDlg: backups.createBackupDlg, createBackup: backups.createBackup,
+  restoreBackup: backups.restoreBackup, delBackup: backups.delBackup,
+  // планировщик
+  cronDlg: cron.cronDlg, cronHint: cron.cronHint, cronDlgRemember: cron.cronDlgRemember,
+  cronSiteInsert: cron.cronSiteInsert, cronFileDlg: cron.cronFileDlg,
+  fpGo: cron.fpGo, fpIdxCrumb: cron.fpIdxCrumb, fpIdx: cron.fpIdx,
+  fpPickIdx: cron.fpPickIdx, fpPick: cron.fpPick, fpPickCurrent: cron.fpPickCurrent,
+  fpRender: cron.fpRender, cronToggleJob: cron.cronToggleJob,
+  cronDlgSave: cron.cronDlgSave, cronDel: cron.cronDel, cronLogDlg: cron.cronLogDlg,
+  cronRun: cron.cronRun, cronSave: cron.cronSave,
+  // брандмауэр
+  fwAddDlg: fw.fwAddDlg, fwAdd: fw.fwAdd,
+  // пакеты и PHP-модули
+  pkgToggleKind: pkg.pkgToggleKind, pkgUpgradeKind: pkg.pkgUpgradeKind,
+  aptUpdate: pkg.aptUpdate, openPhpModules: pkg.openPhpModules,
+  installPhpModules: pkg.installPhpModules,
+  // установка ПО
+  swInstall: sw.swInstall, swRemove: sw.swRemove, ioncubeGo: sw.ioncubeGo,
+  pmaDlg: sw.pmaDlg, pmaInstall: sw.pmaInstall, pmaAccessDlg: sw.pmaAccessDlg,
+  pmaRemoveDlg: sw.pmaRemoveDlg, pmaProtToggle: sw.pmaProtToggle,
+  // настройки ПО
+  swsetGo: swset.swsetGo, swsetSave: swset.swsetSave, swsetEntryDlg: swset.swsetEntryDlg,
+  swFileEdit: swset.swFileEdit,
+  swFileSave: swset.swFileSave, swFileRestore: swset.swFileRestore,
+  swPassDlg: swset.swPassDlg, swPassDo: swset.swPassDo, swPassClear: swset.swPassClear,
+  // настройки панели
+  settingsSave: set.settingsSave, saveTheme: set.saveTheme, changePass: set.changePass,
+  ntSecChanged: set.ntSecChanged, notifySave: set.notifySave, notifyTest: set.notifyTest,
+  sessionDrop: set.sessionDrop, dropOtherSessions: set.dropOtherSessions,
+  totpEnableDlg: set.totpEnableDlg, totpConfirm: set.totpConfirm,
+  totpDisableDlg: set.totpDisableDlg, totpDisable: set.totpDisable,
+  exportSettings: set.exportSettings, importDlg: set.importDlg,
+  importApply: set.importApply, serverRebootDlg: set.serverRebootDlg,
+  diskClean: set.diskClean,
+  // терминал
+  termRun: term.termRun,
+  // boot
+  forcePwSave: boot.forcePwSave, wizard2faEnable: boot.wizard2faEnable,
+  wizardDone: boot.wizardDone,
+};
+
+if (typeof window !== 'undefined') Object.assign(window, HANDLERS);

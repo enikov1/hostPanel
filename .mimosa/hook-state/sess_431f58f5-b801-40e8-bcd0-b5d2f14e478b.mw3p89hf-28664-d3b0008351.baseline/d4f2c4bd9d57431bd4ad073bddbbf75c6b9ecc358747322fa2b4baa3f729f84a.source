@@ -1,0 +1,259 @@
+/* ============ Страница: Настройки ПО (пароли, поля, конфиги служб) ============ */
+import { api } from '../api/client';
+import { icon, copyIconSvg } from '../core/icons';
+import { esc, $ } from '../core/format';
+import { registerPage, go } from '../core/router';
+import { toast, toastErr } from '../components/toast';
+import { modal, closeModal, confirmDlg } from '../components/modal';
+import { pwField, pwBindStrength } from '../components/pw';
+import { mountCodeEditor, prismLangFromKind } from '../components/code-editor';
+import type { CodeEditor } from '../components/code-editor';
+
+const SWSET_ICONS: Record<string, string> = { nginx: 'globe', apache: 'server', mariadb: 'db',
+  postgresql: 'db', redis: 'zap', memcached: 'zap', postfix: 'ext',
+  dovecot: 'archive', fail2ban: 'shield', pma: 'db' };
+
+let swsetData: any[] = [];
+let swsetHighlight = '';
+let swFile: { id: string; name: string } | null = null;
+let swEdApi: CodeEditor | null = null;
+
+async function pgSwset(c: HTMLElement): Promise<void> {
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let d: any;
+  try { d = await api('/api/swset'); } catch (e) { c.innerHTML = ''; toastErr(e); return; }
+  const entries = d.entries || [];
+  if (!entries.length) {
+    c.innerHTML = '<div class="empty">Установите службы в разделе «Установка ПО» — ' +
+      'и здесь появятся их настройки.</div>';
+    return;
+  }
+  swsetData = entries;
+  // группируем по разделам, каждый модуль — плитка; настройки открываются
+  // в модальном окне, чтобы всё не было свалено на одной странице
+  const groups: string[] = [];
+  entries.forEach((e: any) => { if (!groups.includes(e.group || 'Прочее')) groups.push(e.group || 'Прочее'); });
+  c.innerHTML =
+    '<div class="toolbar"><span class="muted" style="font-size:13px">Настройки установленных служб — ' +
+    'по одному модулю в отдельном окне. Перед каждым изменением панель делает копию конфига; ' +
+    'если служба с новым конфигом не поднимается — настройки откатываются автоматически.</span></div>' +
+    groups.map((g) =>
+      '<label style="margin-top:14px">' + esc(g) + '</label>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px">' +
+      entries.filter((e: any) => (e.group || 'Прочее') === g).map(swsetTile).join('') +
+      '</div>').join('');
+  const hl = swsetHighlight;
+  if (hl) {
+    swsetHighlight = '';
+    const e = entries.find((x: any) => x.id === hl);
+    if (e) { swsetEntryDlg(hl); return; }
+    const el = document.getElementById('swset-' + hl);
+    if (el) el.style.outline = '2px solid var(--accent)';
+  }
+}
+
+function swsetTile(e: any): string {
+  const pill = e.active === null ? '' :
+    (e.active ? '<span class="pill ok">работает</span>'
+              : '<span class="pill danger">остановлен</span>');
+  const ico = SWSET_ICONS[e.id] || (e.id.indexOf('php') === 0 ? 'gear' : 'pkg');
+  const counts: string[] = [];
+  if (e.fields.length) counts.push('параметров: ' + e.fields.length);
+  if ((e.files || []).filter((f: any) => f.path).length)
+    counts.push('конфигов: ' + e.files.filter((f: any) => f.path).length);
+  if (e.passwords.length) counts.push('паролей: ' + e.passwords.length);
+  return '<div class="card swset-tile" id="swset-' + esc(e.id) + '" style="cursor:pointer;margin:0" ' +
+    'onclick="swsetEntryDlg(\'' + esc(e.id) + '\')" ' +
+    'title="Открыть настройки">' +
+    '<div class="card-h"><span style="width:26px;display:inline-block">' +
+    icon(ico, 18) + '</span>' +
+    '<span class="card-t">' + esc(e.name) + '</span>' + pill + '</div>' +
+    (e.note ? '<div class="muted" style="font-size:12px;padding:0 6px 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">' +
+      esc(e.note) + '</div>' : '') +
+    '<div class="faint" style="font-size:11.5px;padding:0 6px 6px">' +
+    (counts.length ? esc(counts.join(' · ')) + ' — нажмите, чтобы настроить' : 'нажмите, чтобы настроить') +
+    '</div></div>';
+}
+
+function swsetEntryDlg(id: string): void {
+  const e = swsetData.find((x) => x.id === id);
+  if (!e) return;
+  const pill = e.active === null ? '' :
+    (e.active ? '<span class="pill ok">работает</span>'
+              : '<span class="pill danger">остановлен</span>');
+  let html = (e.note ? '<div class="muted" style="font-size:12.5px;margin-bottom:8px">' +
+    esc(e.note) + '</div>' : '');
+  if (e.fields.length) {
+    html += '<b style="font-size:13px">Параметры</b>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px 14px;padding:6px 0 2px">' +
+      e.fields.map((f: any) => swsetField(e.id, f)).join('') + '</div>' +
+      '<div style="padding:4px 0 8px"><button class="btn sm primary" onclick="swsetSave(\'' + esc(e.id) + '\')">' +
+      icon('check', 14) + ' Сохранить параметры</button></div>';
+  }
+  if (e.passwords.length) {
+    html += '<b style="font-size:13px">Пароли</b>' +
+      '<div style="padding:4px 0 6px">' +
+      e.passwords.map((p: any) =>
+        '<div class="row" style="align-items:center;padding:6px 0;gap:10px">' +
+        '<div style="flex:1;min-width:0"><b style="font-size:13px">' + esc(p.label) + '</b>' +
+        (p.hint ? '<div class="muted" style="font-size:12px">' + esc(p.hint) + '</div>' : '') + '</div>' +
+        '<button class="btn sm" onclick="swPassDlg(\'' + esc(e.id) + '\',\'' + esc(p.key) + '\')">Сменить</button>' +
+        (e.id === 'redis' ? '<button class="btn sm danger" onclick="swPassClear(\'' + esc(e.id) + '\',\'' + esc(p.key) + '\')">Убрать</button>' : '') +
+        '</div>').join('') + '</div>';
+  }
+  const files = (e.files || []).filter((f: any) => f.path);
+  if (files.length) {
+    html += '<b style="font-size:13px">Конфигурационные файлы</b>' +
+      '<div style="padding:4px 0 2px">' +
+      files.map((f: any) =>
+        '<div class="row" style="align-items:center;padding:6px 0;gap:10px">' +
+        '<div style="flex:1;min-width:0"><span class="mono" style="font-size:12.5px">' + esc(f.path) + '</span></div>' +
+        '<button class="btn sm" onclick="swFileEdit(\'' + esc(e.id) + '\', decodeURIComponent(\'' + encodeURIComponent(f.name) + '\'))">' +
+        icon('file', 14) + ' Редактировать</button></div>').join('') + '</div>';
+  }
+  modal(e.name + ' ' + pill, html,
+    '<button class="btn primary" onclick="closeModal()">Закрыть</button>', true);
+}
+
+function swsetField(id: string, f: any): string {
+  const fid = 'swf-' + id + '-' + f.key;
+  const hint = f.hint ? '<div class="faint" style="font-size:11.5px;margin-top:3px">' + esc(f.hint) + '</div>' : '';
+  let inp: string;
+  if (f.type === 'choice') {
+    inp = '<select id="' + fid + '" class="mono">' +
+      f.options.map((o: string) => '<option' + (o === f.value ? ' selected' : '') + '>' + esc(o) + '</option>').join('') +
+      '</select>';
+  } else if (f.type === 'bool') {
+    inp = '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">' +
+      '<input type="checkbox" id="' + fid + '"' + (f.value ? ' checked' : '') + '> включено</label>';
+  } else if (f.type === 'int' || f.type === 'float') {
+    inp = '<input type="number" id="' + fid + '" class="mono" value="' + esc(f.value === null || f.value === undefined ? '' : f.value) + '"' +
+      (f.type === 'float' ? ' step="0.1"' : ' step="1"') +
+      (f.min !== undefined ? ' min="' + f.min + '"' : '') + (f.max !== undefined ? ' max="' + f.max + '"' : '') + '>';
+  } else {
+    inp = '<input type="text" id="' + fid + '" class="mono" value="' + esc(f.value === null || f.value === undefined ? '' : f.value) + '">';
+  }
+  return '<div class="field" style="margin:0"><label>' + esc(f.label) + '</label>' + inp + hint + '</div>';
+}
+
+async function swsetSave(id: string): Promise<void> {
+  // поля могут быть и в карточке, и в модальном окне настроек
+  const inModal = document.querySelector('#modal [id^="swf-' + id + '-"]');
+  const card = (inModal ? document.getElementById('modal')
+    : document.getElementById('swset-' + id)) as HTMLElement | null;
+  if (!card) return;
+  const fields: Record<string, any> = {};
+  card.querySelectorAll('[id^="swf-' + id + '-"]').forEach((inp) => {
+    const el = inp as HTMLInputElement;
+    const key = el.id.replace('swf-' + id + '-', '');
+    fields[key] = el.type === 'checkbox' ? el.checked : el.value;
+  });
+  try {
+    const r = await api('/api/swset/save', { method: 'POST', body: { id, fields } });
+    toast(esc(r.message));
+    closeModal();
+    go('swset');
+  } catch (e) { toastErr(e); }
+}
+
+async function swFileEdit(id: string, name: string): Promise<void> {
+  let d: any;
+  try { d = await api('/api/swset/file?id=' + encodeURIComponent(id) + '&name=' + encodeURIComponent(name)); }
+  catch (e) { toastErr(e); return; }
+  const lang = prismLangFromKind(d.kind || '');
+  const bk = (d.backups || []).slice(0, 5);
+  swFile = { id, name };
+  modal('Конфиг: ' + esc(d.path),
+    '<div id="swed-wrap"></div>' +
+    '<div class="faint" style="font-size:11.5px;margin-top:6px">при сохранении панель делает копию и проверяет синтаксис; при ошибке конфиг откатится</div>' +
+    (bk.length ? '<div class="faint" style="font-size:11.5px;margin-top:4px">Копии: ' +
+      bk.map((b: any) => '<a href="#" style="text-decoration:underline" title="восстановить" ' +
+        'onclick="swFileRestore(decodeURIComponent(\'' + encodeURIComponent(b.file) + '\')); return false">' +
+        esc(b.file) + '</a>').join(' · ') + '</div>' : ''),
+    '<button class="btn primary" onclick="swFileSave()">' + icon('check', 15) + ' Сохранить</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+  swEdApi = mountCodeEditor(document.getElementById('swed-wrap')!,
+    d.content || '', lang);
+}
+
+async function swFileSave(): Promise<void> {
+  const { id, name } = swFile!;
+  try {
+    const r = await api('/api/swset/file', { method: 'POST',
+      body: { id, name, content: swEdApi!.get() } });
+    toast(esc(r.message)); closeModal(); go('swset');
+  } catch (e) { toastErr(e); }
+}
+
+async function swFileRestore(file: string): Promise<void> {
+  const { id, name } = swFile!;
+  confirmDlg('Восстановить копию',
+    'Восстановить конфиг <b>' + esc(name) + '</b> из копии <b>' + esc(file) + '</b>? ' +
+    'Служба будет перезагружена с прежними настройками.', async () => {
+    try {
+      const r = await api('/api/swset/restore', { method: 'POST',
+        body: { id, name, file } });
+      toast(esc(r.message)); closeModal(); go('swset');
+    } catch (e) { toastErr(e); }
+  }, false);
+}
+
+function swPassDlg(id: string, key: string): void {
+  const e = swsetData.find((x) => x.id === id);
+  const p = e ? (e.passwords.find((x: any) => x.key === key) || {}) : {};
+  modal('Сменить пароль — ' + esc(e ? e.name : id),
+    pwField('sw-pass', { label: 'Новый пароль (пусто — сгенерировать автоматически)',
+      hint: esc(p.hint || 'Пароль будет показан после смены — сохраните его.') }) +
+    '<div id="sw-pass-out"></div>',
+    '<button class="btn primary" onclick="swPassDo(\'' + esc(id) + '\',\'' + esc(key) + '\')">Сменить пароль</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>');
+  pwBindStrength('sw-pass');
+}
+
+async function swPassDo(id: string, key: string): Promise<void> {
+  const pw = ($('#sw-pass') as HTMLInputElement).value;
+  try {
+    const r = await api('/api/swset/password', { method: 'POST',
+      body: { id, key, password: pw } });
+    const gen = r.password || pw;
+    (document.getElementById('sw-pass-out') as HTMLElement)!.innerHTML =
+      '<div class="notice ok" style="margin-top:8px"><b>Пароль изменён:</b> ' +
+      '<span class="mono" id="sw-pass-val">' + esc(gen) + '</span> ' +
+      '<button class="btn sm icon" onclick="copyText(document.getElementById(\'sw-pass-val\').textContent, this)">' + copyIconSvg + '</button>' +
+      '<div class="faint" style="font-size:11.5px;margin-top:4px">скопируйте и сохраните — больше он не покажется</div></div>';
+    if (r.message) console.log(r.message);
+  } catch (e) { toastErr(e); }
+}
+
+async function swPassClear(id: string, key: string): Promise<void> {
+  confirmDlg('Убрать пароль',
+    'Убрать пароль подключения к Redis? Подключения без пароля станут возможны ' +
+    '(следите, чтобы порт слушал только 127.0.0.1).', async () => {
+    try {
+      const r = await api('/api/swset/password', { method: 'POST',
+        body: { id, key, clear: true } });
+      toast(esc(r.message)); go('swset');
+    } catch (e) { toastErr(e); }
+  });
+}
+
+/* кнопка «Настройки» в каталоге «Установка ПО» */
+function swsetGo(id: string): void {
+  const e = swsetData.find((x) => x.id === id);
+  if (e && document.getElementById('swset-' + id) === null) {
+    // страница ещё не отрисована — откроем модалку сразу, без перехода
+    swsetEntryDlg(id);
+    return;
+  }
+  swsetHighlight = id; go('swset');
+}
+
+registerPage('swset', pgSwset);
+
+export { pgSwset, swsetTile, swsetEntryDlg, swsetField, swsetSave, swFileEdit, swFileSave,
+  swFileRestore, swPassDlg, swPassDo, swPassClear, swsetGo, SWSET_IDS };
+
+/* реестр служб, у которых есть страница настроек (нужен каталогу ПО) */
+const SWSET_IDS: Record<string, number> = { nginx: 1, apache: 1, php74: 1, php80: 1, php81: 1, php82: 1,
+  php83: 1, php84: 1, php85: 1, mariadb: 1, postgresql: 1, redis: 1,
+  memcached: 1, postfix: 1, dovecot: 1, fail2ban: 1 };

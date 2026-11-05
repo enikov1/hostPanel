@@ -1,0 +1,241 @@
+/* ============ Страницы: Почта — домены и ящики ============ */
+import { api } from '../api/client.js';
+import { icon } from '../core/icons.js';
+import { esc, fmtDate } from '../core/format.js';
+import { registerPage, go } from '../core/router.js';
+import { toast, toastErr } from '../components/toast.js';
+import { modal, closeModal, confirmDlg } from '../components/modal.js';
+import { pwField, pwGenerate, pwBindStrength } from '../components/pw.js';
+import { genPassword } from '../components/pw.js';
+/** старое имя генератора (используется в шаблонах почты) */
+function genPass() { return genPassword(); }
+async function pgMail(c) {
+    c.innerHTML = '<div class="empty">Загрузка…</div>';
+    let d;
+    try {
+        d = await api('/api/mail');
+    }
+    catch (e) {
+        c.innerHTML = '';
+        toastErr(e);
+        return;
+    }
+    const st = d.status;
+    const pill = (on, label) => '<span class="pill ' + (on ? 'ok' : 'err') + '"><span class="dot"></span>' +
+        (on ? label + ' работает' : label + ' остановлен') + '</span>';
+    let html = '<div class="card" style="padding:14px"><div class="row" style="align-items:center;flex-wrap:wrap;gap:8px">' +
+        '<div class="row" style="align-items:center;gap:8px;flex-wrap:wrap"><b>Почтовый сервер</b>' +
+        pill(st.postfix_active, 'Postfix') + pill(st.dovecot_active, 'Dovecot') + '</div>' +
+        '<span class="spacer"></span>' +
+        '<span class="muted" style="font-size:13px">доменов: <b>' + st.domains + '</b> · ящиков: <b>' + st.mailboxes + '</b></span></div>' +
+        '<div class="notice info" style="margin-top:10px">SMTP: порт 25 и 587 (авторизация) · IMAP: 143/993 · POP3: 110/995. ' +
+        'Для приёма внешней почты добавьте у регистратора MX-запись домена на этот сервер ' +
+        '(A-запись: ' + esc((st.server_ips || []).join(', ') || 'IP сервера') + ').</div></div>';
+    if (!st.postfix_installed || !st.dovecot_installed) {
+        c.innerHTML = html +
+            '<div class="notice warn" style="margin-top:12px">Почтовые службы ещё не установлены.</div>' +
+            '<div class="row" style="margin-top:10px">' +
+            '<button class="btn primary" onclick="mailInstallAll()">' + icon('down', 15) + ' Установить Postfix + Dovecot + Mailutils</button></div>';
+        return;
+    }
+    /* --- домены --- */
+    html += '<div class="card" style="margin-top:12px;padding:6px 10px">' +
+        '<div class="card-h" style="padding:10px 6px 0"><span class="card-t">Почтовые домены</span>' +
+        '<span class="card-spacer"></span>' +
+        '<button class="btn sm primary" onclick="mailDomainDlg()">' + icon('plus', 14) + ' Добавить домен</button>' +
+        '<span class="faint" style="font-size:11.5px">у каждого домена кнопка «DNS» — готовые SPF/DKIM/DMARC записи для регистратора</span></div>' +
+        '<div class="twrap"><table><thead><tr><th>Домен</th><th>Добавлен</th><th>Ящиков</th><th></th></tr></thead><tbody>' +
+        (d.domains.length ? d.domains.map((dm) => {
+            const cnt = d.mailboxes.filter((m) => m.domain === dm.domain).length;
+            return '<tr><td class="mono"><b>' + esc(dm.domain) + '</b></td>' +
+                '<td class="muted">' + esc(fmtDate(dm.created)) + '</td><td>' + cnt + '</td>' +
+                '<td><div class="actions-cell">' +
+                '<button class="btn sm" onclick="mailBoxDlg(\'' + esc(dm.domain) + '\')">' + icon('plus', 13) + ' Ящик</button>' +
+                '<button class="btn sm" onclick="mailDnsDlg(\'' + esc(dm.domain) + '\')">DNS (SPF/DKIM)</button>' +
+                '<button class="btn sm icon danger" onclick="mailDomainDel(\'' + esc(dm.domain) + '\')">' + icon('trash', 14) + '</button>' +
+                '</div></td></tr>';
+        }).join('') : '<tr><td colspan="4" class="muted">доменов нет</td></tr>') +
+        '</tbody></table></div></div>';
+    /* --- ящики --- */
+    html += '<div class="card" style="margin-top:12px;padding:6px 10px">' +
+        '<div class="card-h" style="padding:10px 6px 0"><span class="card-t">Ящики</span>' +
+        '<span class="card-spacer"></span>' +
+        '<button class="btn sm primary" onclick="mailBoxDlg()">' + icon('plus', 14) + ' Создать ящик</button></div>' +
+        '<div class="twrap"><table><thead><tr><th>Ящик</th><th>Домен</th><th>Создан</th><th></th></tr></thead><tbody>' +
+        (d.mailboxes.length ? d.mailboxes.map((m) => '<tr><td class="mono"><b>' + esc(m.email) + '</b></td>' +
+            '<td class="muted">' + esc(m.domain) + '</td>' +
+            '<td class="muted">' + esc(fmtDate(m.created)) + '</td>' +
+            '<td><div class="actions-cell">' +
+            '<button class="btn sm" onclick="mailBoxTest(\'' + esc(m.email) + '\')">Тест доставки</button>' +
+            '<button class="btn sm" onclick="mailBoxPwDlg(\'' + esc(m.email) + '\')">Пароль</button>' +
+            '<button class="btn sm icon danger" onclick="mailBoxDel(\'' + esc(m.email) + '\')">' + icon('trash', 14) + '</button>' +
+            '</div></td></tr>').join('') : '<tr><td colspan="4" class="muted">ящиков нет</td></tr>') +
+        '</tbody></table></div>' +
+        '<div class="muted" style="font-size:12.5px;padding:8px 6px">Настройки почтового клиента: сервер входящей почты IMAP — ' +
+        esc(location.hostname) + ', порт 143 (SSL 993); SMTP — порт 587; логин и пароль — как у ящика.</div></div>';
+    c.innerHTML = html;
+}
+async function mailInstallAll() {
+    confirmDlg('Установка почты', 'Установить <b>Postfix, Dovecot и Mailutils</b>? Займёт 1–3 минуты.', async () => {
+        for (const n of ['postfix', 'dovecot', 'mailutils']) {
+            try {
+                await api('/api/software/install', { method: 'POST', body: { name: n } });
+            }
+            catch (e) {
+                toastErr(e);
+                return;
+            }
+            for (let i = 0; i < 150; i++) { // ждём завершения фоновой задачи
+                await new Promise((r2) => setTimeout(r2, 2000));
+                try {
+                    const t = await api('/api/packages/task');
+                    if (!t.running)
+                        break;
+                }
+                catch (e2) { }
+            }
+        }
+        toast('Почтовый стек установлен');
+        go('mail');
+    });
+}
+function mailDomainDlg() {
+    modal('Почтовый домен', '<div class="field"><label>Домен (MX-запись должна указывать на этот сервер)</label>' +
+        '<input type="text" id="md-domain" placeholder="example.ru"></div>' +
+        '<div class="notice info">Панель пропишет домен в Postfix; ящики создаются на следующем шаге.</div>', '<button class="btn primary" onclick="mailDomainAdd()">Добавить</button>' +
+        '<button class="btn" onclick="closeModal()">Отмена</button>');
+}
+async function mailDomainAdd() {
+    try {
+        const r = await api('/api/mail/domains/add', { method: 'POST',
+            body: { domain: document.getElementById('md-domain').value.trim() } });
+        toast(esc(r.message));
+        closeModal();
+        go('mail');
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function mailDomainDel(domain) {
+    confirmDlg('Удалить домен', 'Удалить почтовый домен <b>' + esc(domain) + '</b>? ' +
+        'Сначала нужно удалить все его ящики.', async () => {
+        try {
+            const r = await api('/api/mail/domains/remove', { method: 'POST', body: { domain } });
+            toast(esc(r.message));
+            go('mail');
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    });
+}
+function mailBoxDlg(domain) {
+    modal('Новый ящик', '<div class="field"><label>Локальная часть (до @)</label><input type="text" id="mb-local" placeholder="info"></div>' +
+        '<div class="field"><label>Домен</label><select id="mb-domain"></select></div>' +
+        pwField('mb-pass', { label: 'Пароль (мин. 6 символов)',
+            hint: 'Этот пароль вводится в почтовом клиенте. Скопируйте его кнопкой справа.' }), '<button class="btn primary" onclick="mailBoxAdd()">Создать</button>' +
+        '<button class="btn" onclick="closeModal()">Отмена</button>');
+    api('/api/mail').then((d) => {
+        document.getElementById('mb-domain').innerHTML = d.domains.map((x) => '<option' + (x.domain === domain ? ' selected' : '') + '>' + esc(x.domain) + '</option>').join('') ||
+            '<option value="">— сначала добавьте домен —</option>';
+    }).catch(() => { });
+    pwGenerate('mb-pass');
+    pwBindStrength('mb-pass');
+}
+async function mailBoxAdd() {
+    const email = document.getElementById('mb-local').value.trim() + '@' +
+        document.getElementById('mb-domain').value;
+    try {
+        const r = await api('/api/mail/boxes/add', { method: 'POST',
+            body: { email, password: document.getElementById('mb-pass').value } });
+        modal('Ящик создан', '<div class="notice ok">Ящик <b>' + esc(email) + '</b> создан.</div>' +
+            '<div class="field" style="margin-top:10px"><label>Пароль (сохраните — повторно не показывается)</label>' +
+            '<input type="text" class="mono" value="' + esc((r.data && r.data.password) || '') + '" readonly></div>', '<button class="btn primary" onclick="closeModal(); go(\'mail\')">Готово</button>');
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function mailBoxPwDlg(email) {
+    modal('Смена пароля: ' + esc(email), '<div class="field"><label>Новый пароль (мин. 6 символов)</label><div class="row">' +
+        '<input type="text" id="mbp-pass">' +
+        '<button class="btn" onclick="document.getElementById(\'mbp-pass\').value=genPass()">Сгенерировать</button></div></div>', '<button class="btn primary" onclick="mailBoxPw(\'' + esc(email) + '\')">Сменить</button>' +
+        '<button class="btn" onclick="closeModal()">Отмена</button>');
+    document.getElementById('mbp-pass').value = genPass();
+}
+async function mailBoxPw(email) {
+    try {
+        const r = await api('/api/mail/boxes/password', { method: 'POST',
+            body: { email, password: document.getElementById('mbp-pass').value } });
+        toast(esc(r.message));
+        closeModal();
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function mailBoxDel(email) {
+    confirmDlg('Удалить ящик', 'Удалить ящик <b>' + esc(email) + '</b> вместе со всеми письмами?', async () => {
+        try {
+            const r = await api('/api/mail/boxes/remove', { method: 'POST', body: { email } });
+            toast(esc(r.message));
+            go('mail');
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    });
+}
+async function mailBoxTest(email) {
+    toast('Отправляю тестовое письмо…');
+    try {
+        const r = await api('/api/mail/boxes/test', { method: 'POST', body: { email } });
+        toast(esc(r.message));
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+/* ---------- DNS-записи почты: SPF/DKIM/DMARC ---------- */
+async function mailDnsDlg(domain) {
+    modal('DNS-записи почты: ' + esc(domain), '<div class="empty">Загрузка…</div>', '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+    let d;
+    try {
+        d = await api('/api/mail/dns?domain=' + encodeURIComponent(domain));
+    }
+    catch (e) {
+        closeModal();
+        toastErr(e);
+        return;
+    }
+    const rec = (r) => '<div class="kv"><b>' + r.type + ' · <span class="mono">' + esc(r.name) + '</span></b>' +
+        '<span class="mono" style="word-break:break-all">' + esc(r.value) + '</span></div>' +
+        '<div class="row" style="align-items:center;gap:8px;margin-bottom:8px">' +
+        (r.ok ? '<span class="pill ok">запись есть в DNS</span>'
+            : '<span class="pill warn">записи нет — добавьте у регистратора</span>') +
+        '<button class="btn sm" data-v="' + esc(r.value) + '" onclick="copyText(this.dataset.v, this)">' +
+        icon('file', 13) + ' копировать</button></div>';
+    modal('DNS-записи почты — ' + esc(domain), '<div class="notice info">Добавьте эти записи у регистратора домена. ' +
+        'Без SPF/DKIM/DMARC письма с вашего сервера почти наверняка попадают в спам. ' +
+        'IP сервера: <b class="mono">' + esc(d.server_ip || '—') + '</b>. ' +
+        'Изменения DNS применяются до нескольких часов.</div>' +
+        rec(d.records.spf) + rec(d.records.dmarc) + rec(d.records.dkim) +
+        (!d.dkim_generated ? '<div class="row" style="margin-top:10px">' +
+            '<button class="btn" onclick="mailDkimGen(\'' + esc(domain) + '\')">' +
+            icon('zap', 14) + ' Сгенерировать DKIM-ключ</button>' +
+            '<span class="faint" style="font-size:11.5px">подпись писем DKIM требует также настройки opendkim в postfix — ключи сохранятся в панели</span></div>' : '') +
+        (d.demo ? '<div class="notice info">демо-данные</div>' : ''), '<button class="btn primary" onclick="closeModal()">Готово</button>', true);
+}
+async function mailDkimGen(domain) {
+    try {
+        const r = await api('/api/mail/dkim/generate', { method: 'POST', body: { domain } });
+        toast(esc(r.message));
+        mailDnsDlg(domain);
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+registerPage('mail', pgMail);
+export { pgMail, mailInstallAll, mailDomainDlg, mailDomainAdd, mailDomainDel, mailBoxDlg, mailBoxAdd, mailBoxPwDlg, mailBoxPw, mailBoxDel, mailBoxTest, mailDnsDlg, mailDkimGen, genPass };

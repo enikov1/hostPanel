@@ -141,10 +141,10 @@ def _notify_backup(meta, error):
         if not notify.configured():
             return
         if error:
-            notify.send("HostPanel: автобэкап провалился",
+            notify.send_event("backup", "HostPanel: автобэкап провалился",
                         "Резервная копия не создалась:\n%s" % error)
         else:
-            notify.send("HostPanel: автобэкап готов",
+            notify.send_event("backup", "HostPanel: автобэкап готов",
                         "Файл: %s\nРазмер: %s"
                         % (meta["file"], utils.human_size(meta["size"])))
     except Exception as e:  # noqa: BLE001

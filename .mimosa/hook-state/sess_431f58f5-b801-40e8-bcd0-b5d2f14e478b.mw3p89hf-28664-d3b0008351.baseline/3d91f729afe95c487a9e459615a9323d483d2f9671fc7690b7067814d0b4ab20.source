@@ -1,0 +1,24 @@
+/* ============ Глобальное состояние приложения ============ */
+import type { Me, ApiData } from '../types';
+
+/** Данные /api/me (заполняются в boot). */
+export const me: Me = {
+  demo: false, version: '', www_root: '', home: '', expert: false,
+};
+
+/** Текущая страница роутера (живой экспорт: импортеры видят обновления). */
+export let page = 'overview';
+export function setPage(p: string): void { page = p; }
+
+/** Признак «пароль ещё стандартный» (подсказка на экране входа). */
+export const session = {
+  defaultPw: false,
+  /** подготовленный шаг 2FA welcome-мастера */
+  wizard2fa: null as ApiData | null,
+};
+
+/** Хуки, которые boot переопределяет, а страницы вызывают
+ *  (избегаем циклических импортов boot <-> pages). */
+export const hooks = {
+  updateLoginHint: (): void => {},
+};

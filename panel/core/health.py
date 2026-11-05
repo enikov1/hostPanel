@@ -158,7 +158,9 @@ def _external(title, text):
     try:
         from . import notify
         if notify.configured():
-            notify.send("HostPanel: " + title, text)
+            notify.send_event("site_recover" if "восстановился" in title
+                              else "site_down",
+                              "HostPanel: " + title, text)
     except Exception as e:  # noqa: BLE001 — доставка не должна ломать поток
         utils.log("Notify: %s" % e)
 
@@ -231,7 +233,7 @@ def _watch_fail2ban():
                          % ", ".join(sorted(new)[:8]), "warn")
         try:
             from . import notify
-            notify.send("HostPanel: fail2ban",
+            notify.send_event("security", "HostPanel: fail2ban",
                         "Новые блокировки: %s" % ", ".join(sorted(new)[:8]))
         except Exception as e:  # noqa: BLE001
             utils.log("notify fail2ban: %s" % e)

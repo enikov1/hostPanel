@@ -1,0 +1,74 @@
+/* ============ Редактор кода с подсветкой (Prism, оверлей) ============ */
+import { esc } from '../core/format.js';
+/** Язык Prism по пути файла. */
+export function prismLangFromPath(path) {
+    const ext = (path.split('.').pop() || '').toLowerCase();
+    const map = {
+        php: 'php', conf: 'nginx', ini: 'ini', sql: 'sql', json: 'json',
+        js: 'javascript', mjs: 'javascript', css: 'css', html: 'markup', htm: 'markup',
+        py: 'python', sh: 'bash', yml: 'yaml', yaml: 'yaml', htaccess: 'apacheconf',
+        htpasswd: 'apacheconf', md: 'markup', xml: 'markup', cnf: 'ini', env: 'bash',
+        service: 'ini', timer: 'ini', socket: 'ini',
+    };
+    if (path.includes('nginx'))
+        return 'nginx';
+    if (path.includes('apache') || path.includes('.ht'))
+        return 'apacheconf';
+    return map[ext] || 'markup';
+}
+/** Язык Prism по типу конфига панели. */
+export function prismLangFromKind(kind) {
+    return {
+        nginx: 'nginx', apache: 'apacheconf', fpm: 'ini', php: 'ini',
+        ini: 'ini', conf: 'bash', postfix: 'ini', dovecot: 'bash',
+        fail2ban: 'ini',
+    }[kind] || 'markup';
+}
+/** Монтирует в el редактор: гуттер с номерами строк, слой подсветки,
+ *  прозрачный textarea поверх. */
+export function mountCodeEditor(el, value, lang) {
+    el.classList.add('code-wrap');
+    el.innerHTML =
+        '<div class="code-gutter mono"></div>' +
+            '<div class="code-scroll"><pre class="code-hl language-' + lang +
+            '"><code class="language-' + lang + '"></code></pre>' +
+            '<textarea class="code-input mono" spellcheck="false" autocomplete="off"></textarea></div>';
+    const ta = el.querySelector('.code-input');
+    const hl = el.querySelector('.code-hl');
+    const code = el.querySelector('.code-hl code');
+    const gut = el.querySelector('.code-gutter');
+    ta.value = value || '';
+    function render() {
+        const text = ta.value;
+        let html;
+        try {
+            html = Prism.highlight(text, Prism.languages[lang] || Prism.languages.markup, lang);
+        }
+        catch (e) {
+            html = esc(text);
+        }
+        code.innerHTML = html + '\n';
+        const lines = text.split('\n').length;
+        let g = '';
+        for (let i = 1; i <= lines; i++)
+            g += i + '\n';
+        gut.textContent = g;
+    }
+    ta.addEventListener('input', render);
+    ta.addEventListener('scroll', () => {
+        hl.parentElement.scrollTop = ta.scrollTop;
+        hl.parentElement.scrollLeft = ta.scrollLeft;
+        gut.scrollTop = ta.scrollTop;
+    });
+    ta.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const s = ta.selectionStart, en = ta.selectionEnd;
+            ta.value = ta.value.slice(0, s) + '    ' + ta.value.slice(en);
+            ta.selectionStart = ta.selectionEnd = s + 4;
+            render();
+        }
+    });
+    render();
+    return { get: () => ta.value, el };
+}

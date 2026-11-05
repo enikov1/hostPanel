@@ -1,0 +1,328 @@
+/* ============ Страницы: Базы данных (MariaDB и PostgreSQL) ============ */
+import { api } from '../api/client.js';
+import { icon } from '../core/icons.js';
+import { esc, fmtSize, $ } from '../core/format.js';
+import { me, page } from '../core/state.js';
+import { registerPage, go } from '../core/router.js';
+import { toast, toastErr } from '../components/toast.js';
+import { modal, closeModal, confirmDlg } from '../components/modal.js';
+import { pwField, pwGenerate, pwBindStrength, credRow } from '../components/pw.js';
+import { mountCodeEditor } from '../components/code-editor.js';
+let dbEngines = [];
+let dbEngName = (id) => id;
+let dbFilter = 'all';
+let dbPw = null;
+let sqlEngine = 'mysql';
+let sqlHist = [];
+let sqlApi = null;
+let sqlConfirmed = false;
+async function pgDbs(c) {
+    c.innerHTML = '<div class="empty">Загрузка…</div>';
+    let d;
+    try {
+        d = await api('/api/db');
+    }
+    catch (e) {
+        c.innerHTML = '';
+        toastErr(e);
+        return;
+    }
+    dbEngines = d.engines || [];
+    const avail = dbEngines.filter((e) => e.available);
+    if (!avail.length) {
+        c.innerHTML =
+            '<div class="hintbox">' + icon('db', 16) + '<div>База данных — это «хранилище», куда сайт ' +
+                'складывает свою информацию: товары, записи, пользователей. Она нужна большинству сайтов ' +
+                '(интернет-магазины, блоги, форумы).</div></div>' +
+                '<div class="card" style="text-align:center;padding:46px 20px">' +
+                '<div class="empty" style="padding:0 0 14px">Сервер баз данных (MariaDB или PostgreSQL) ещё не установлен</div>' +
+                '<button class="btn primary" onclick="go(\'software\')">Перейти в «Установка ПО»</button></div>';
+        return;
+    }
+    dbEngName = (id) => { const e = dbEngines.find((x) => x.id === id); return e ? e.name : id; };
+    const filt = dbFilter && (dbFilter === 'all' || avail.some((e) => e.id === dbFilter)) ? dbFilter : 'all';
+    dbFilter = filt;
+    const dbs = d.dbs.filter((x) => filt === 'all' || (x.engine || 'mysql') === filt);
+    const tabs = ['<button class="btn sm' + (filt === 'all' ? ' primary' : '') +
+            '" onclick="dbFilterSet(\'all\')">Все (' + d.dbs.length + ')</button>']
+        .concat(avail.map((e) => '<button class="btn sm' + (filt === e.id ? ' primary' : '') +
+        '" onclick="dbFilterSet(\'' + e.id + '\')">' + esc(e.name) + ' (' +
+        d.dbs.filter((x) => (x.engine || 'mysql') === e.id).length + ')</button>'))
+        .concat(dbEngines.filter((e) => !e.available).map((e) => '<span class="pill warn" style="cursor:pointer" title="Установить в разделе «Установка ПО»" onclick="go(\'software\')">' +
+        esc(e.name) + ' не установлен — установить</span>'));
+    const rows = dbs.map((db) => {
+        const u = db.user ? esc(db.user) : '';
+        const eng = db.engine || 'mysql';
+        return '<tr><td><b class="mono">' + esc(db.name) + '</b></td>' +
+            '<td><span class="pill ' + (eng === 'pg' ? 'info' : 'gray') + '">' + esc(dbEngName(eng)) + '</span></td>' +
+            '<td>' + (u ? '<span class="mono">' + u + '</span>' : '<span class="faint">—</span>') + '</td>' +
+            '<td>' + (db.tables || 0) + '</td>' +
+            '<td>' + fmtSize(db.size_bytes) + '</td>' +
+            '<td><div class="actions-cell">' +
+            '<a class="btn sm" title="Скачать дамп базы (.sql)" href="/api/db/export?name=' + encodeURIComponent(db.name) +
+            '&engine=' + encodeURIComponent(eng) + '">' + icon('down', 14) + ' Экспорт</a>' +
+            '<button class="btn sm" title="Загрузить SQL-файл в базу" onclick="dbImportDlg(\'' + esc(db.name) + '\', \'' + eng + '\')">' + icon('up', 14) + ' Импорт</button>' +
+            '<button class="btn sm" title="Изменить пароль" onclick="dbPassDlg(\'' + esc(db.name) + '\', \'' + eng + '\')">' + icon('lock', 14) + ' Пароль</button>' +
+            (me.expert ? '<button class="btn sm" title="SQL-запросы к базе" onclick="dbSqlDlg(\'' + esc(db.name) + '\', \'' + eng + '\')">' + icon('term', 14) + ' SQL</button>' : '') +
+            '<button class="btn sm icon danger" title="Удалить базу" onclick="dbDel(\'' + esc(db.name) + '\', \'' + eng + '\')">' + icon('trash', 14) + '</button>' +
+            '</div></td></tr>';
+    }).join('');
+    const emptyTxt = filt === 'all'
+        ? 'Пока нет ни одной базы данных.<br>Если вашему сайту нужна база (например, для WordPress) — создайте её здесь.'
+        : 'Баз ' + esc(dbEngName(filt)) + ' пока нет.';
+    c.innerHTML =
+        '<div class="hintbox">' + icon('db', 16) + '<div><b>Что такое база данных?</b> Это хранилище, ' +
+            'куда сайт складывает свою информацию: товары, записи, пользователей. При установке сайта ' +
+            '(WordPress, магазин и т.п.) вас попросят указать имя базы, пользователя и пароль — они появятся ' +
+            'после нажатия кнопки «Создать базу». Здесь можно работать и с MariaDB, и с PostgreSQL.</div></div>' +
+            '<div class="toolbar"><button class="btn primary" onclick="dbCreateDlg()">' + icon('plus', 15) +
+            'Создать базу</button>' +
+            '<button class="btn" onclick="dbSqlDlg()">' + icon('term', 15) + ' SQL-консоль</button></div>' +
+            '<div class="row" style="gap:8px;margin:0 0 10px;flex-wrap:wrap">' + tabs.join('') + '</div>' +
+            (dbs.length ?
+                '<div class="card" style="padding:6px 10px"><div class="twrap"><table>' +
+                    '<thead><tr><th>Название</th><th>СУБД</th><th>Пользователь</th><th>Таблиц</th><th>Размер</th><th></th></tr></thead><tbody>' +
+                    rows + '</tbody></table></div></div>' +
+                    '<div class="faint" style="font-size:12px;margin-top:10px">Экспорт скачивает дамп базы в файл .sql — ' +
+                    'его можно отдать разработчику или залить на другой сервер. Импорт выполняет SQL-файл (.sql, .sql.gz, .zip) ' +
+                    'в выбранную базу — так переносят сайт с другого хостинга.</div>'
+                :
+                    '<div class="card" style="text-align:center;padding:46px 20px">' +
+                        '<div class="empty" style="padding:0 0 14px">' + emptyTxt + '</div>' +
+                        '<button class="btn primary" onclick="dbCreateDlg(\'' + (filt === 'all' ? (avail[0] && avail[0].id || 'mysql') : filt) + '\')">' +
+                        icon('plus', 15) + 'Создать базу</button></div>');
+}
+function dbFilterSet(f) {
+    dbFilter = f;
+    go('dbs');
+}
+function dbCreateDlg(engine) {
+    const avail = dbEngines.filter((e) => e.available);
+    const cur = engine || dbFilter || 'mysql';
+    const engBlock = avail.map((e) => '<label class="check" style="margin:4px 0"><input type="radio" name="db-eng" value="' + e.id + '"' +
+        (e.id === (avail.some((x) => x.id === cur) ? cur : avail[0].id) ? ' checked' : '') + '> ' + esc(e.name) +
+        (e.id === 'pg' ? ' <span class="faint">— например, для 1С-Битрикс24 или приложений на Django</span>' : '') +
+        '</label>').join('');
+    const auto = 'db_' + Math.random().toString(36).slice(2, 7);
+    modal('Новая база данных', (avail.length > 1
+        ? '<div class="field"><label>Тип СУБД</label>' + engBlock + '</div>'
+        : '<div class="faint" style="font-size:12px;margin-bottom:8px">СУБД: <b>' + esc((avail[0] || {}).name || 'MariaDB') +
+            '</b>' + (avail.length === 1 && avail[0].id === 'mysql' ? ' (PostgreSQL можно установить в разделе «Установка ПО»)' : '') + '</div>') +
+        '<div class="field"><label>Название базы (латиница, цифры, _)</label>' +
+        '<input type="text" id="db-name" class="mono" placeholder="например, shop_db" value="' + auto + '"></div>' +
+        '<div class="field"><label>Пользователь</label>' +
+        '<input type="text" id="db-user" class="mono" placeholder="например, shop_user"></div>' +
+        pwField('db-pass', { label: 'Пароль базы',
+            hint: 'Пароль понадобится при установке сайта (например, WordPress). Скопируйте его кнопкой справа.' }), '<button class="btn primary" onclick="dbCreate()">Создать</button><button class="btn" onclick="closeModal()">Отмена</button>');
+    $('#db-user').value = auto + '_u';
+    pwGenerate('db-pass');
+    pwBindStrength('db-pass');
+    setTimeout(() => { $('#db-name').select(); }, 60);
+}
+/* после создания: показать реквизиты с копированием и подсказкой «что дальше» */
+async function dbCreate() {
+    const engEl = document.querySelector('input[name="db-eng"]:checked');
+    const availEng = dbEngines.filter((e) => e.available);
+    const engine = engEl ? engEl.value :
+        (availEng.length === 1 ? availEng[0].id : 'mysql');
+    const name = $('#db-name').value.trim(), user = $('#db-user').value.trim(), pass = $('#db-pass').value;
+    try {
+        await api('/api/db/create', { method: 'POST', body: { name, user, password: pass, engine } });
+        dbCredsModal(name, user, pass, engine);
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function dbCredsModal(name, user, pass, engine) {
+    const engN = dbEngName(engine || 'mysql');
+    modal('База «' + esc(name) + '» создана', '<div class="notice ok">Готово! Скопируйте эти данные — они нужны при установке сайта.</div>' +
+        credRow('СУБД', engN) +
+        credRow('Сервер (хост)', 'localhost') +
+        credRow('Название базы', name) +
+        credRow('Пользователь', user) +
+        credRow('Пароль', pass, 'db-cred-pass') +
+        '<div class="hintbox" style="margin-top:12px">' + icon('check', 16) +
+        '<div><b>Что дальше?</b> Создайте сайт в разделе «Сайты» и при установке ' +
+        '(например, WordPress) введите эти данные в шаге настройки базы.</div></div>', '<button class="btn primary" onclick="closeModal(); go(\'dbs\')">Готово</button>' +
+        '<button class="btn" onclick="closeModal(); go(\'sites\'); setTimeout(wizardSite, 250)">Создать сайт →</button>');
+    pgDbsRefresh();
+}
+function pgDbsRefresh() { if (page === 'dbs')
+    go('dbs'); }
+/* ---------- импорт SQL-дампа в базу ---------- */
+function dbImportDlg(name, engine) {
+    modal('Импорт в базу «' + esc(name) + '»', '<div class="notice warn">Содержимое SQL-файла будет выполнено в базе «<b>' + esc(name) + '</b>»: ' +
+        'существующие таблицы с теми же именами будут перезаписаны. Сначала сделайте экспорт текущей базы.</div>' +
+        '<div class="field"><label>Файл дампа (.sql, .sql.gz, .zip — до 200 МБ)</label>' +
+        '<input type="file" id="dbi-file" accept=".sql,.gz,.zip"></div>' +
+        '<div id="dbi-out"></div>', '<button class="btn primary" onclick="dbImportRun(\'' + esc(name) + '\', \'' + engine + '\')">' +
+        icon('up', 15) + ' Импортировать</button>' +
+        '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+}
+async function dbImportRun(name, engine) {
+    const inp = document.getElementById('dbi-file');
+    if (!inp || !inp.files.length) {
+        toast('выберите файл дампа', 'warn');
+        return;
+    }
+    const out = document.getElementById('dbi-out');
+    out.innerHTML = '<div class="empty">Импортирую — не закрывайте окно…</div>';
+    const fd = new FormData();
+    fd.append('name', name);
+    fd.append('engine', engine);
+    fd.append('file', inp.files[0]);
+    try {
+        const r = await fetch('/api/db/import', { method: 'POST', body: fd });
+        const j = await r.json();
+        if (!j.ok)
+            throw new Error(j.error || 'ошибка импорта');
+        out.innerHTML = '<div class="notice ok">' + esc(j.message) + '</div>';
+        setTimeout(() => { closeModal(); pgDbsRefresh(); }, 1500);
+    }
+    catch (e) {
+        out.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+    }
+}
+/* смена пароля пользователя базы */
+async function dbPassDlg(name, engine) {
+    engine = engine || 'mysql';
+    let users = [];
+    try {
+        users = (await api('/api/db/users?name=' + encodeURIComponent(name) +
+            '&engine=' + encodeURIComponent(engine))).users;
+    }
+    catch (e) { }
+    if (!users.length)
+        users = [name.replace(/[^\w]/g, '').slice(0, 14) + '_u'];
+    dbPw = { name, engine, user: users[0] };
+    const opts = users.map((u) => '<option value="' + esc(u) + '">' + esc(u) + '</option>').join('');
+    const engN = dbEngName(engine);
+    modal('Пароль базы «' + esc(name) + '» — ' + esc(engN), '<div class="field"><label>Пользователь</label><select id="dbp-user" onchange="dbPwUserPick(this.value)">' + opts + '</select></div>' +
+        pwField('dbp-pass', { label: 'Новый пароль',
+            hint: 'После смены пароля обновите его в настройках сайта, который использует эту базу — иначе сайт потеряет доступ.' }), '<button class="btn primary" onclick="dbPassSave()">Изменить пароль</button>' +
+        '<button class="btn" onclick="closeModal()">Отмена</button>');
+    pwGenerate('dbp-pass');
+    pwBindStrength('dbp-pass');
+}
+function dbPwUserPick(u) { if (dbPw)
+    dbPw.user = u; }
+async function dbPassSave() {
+    try {
+        await api('/api/db/pass', { method: 'POST', body: {
+                name: dbPw.name,
+                user: document.getElementById('dbp-user') ? $('#dbp-user').value : dbPw.user,
+                password: $('#dbp-pass').value,
+                engine: dbPw.engine
+            } });
+        const pw = $('#dbp-pass').value;
+        const user = document.getElementById('dbp-user') ? $('#dbp-user').value : dbPw.user;
+        closeModal();
+        modal('Пароль изменён', '<div class="notice ok">Новый пароль для базы <b class="mono">' + esc(dbPw.name) + '</b> сохранён.</div>' +
+            credRow('Пользователь', user) +
+            credRow('Новый пароль', pw, 'db-new-pass') +
+            '<div class="hintbox" style="margin-top:12px">' + icon('lock', 16) +
+            '<div>Скопируйте пароль и обновите его в файле конфигурации вашего сайта (например, wp-config.php у WordPress).</div></div>', '<button class="btn primary" onclick="closeModal()">Готово</button>');
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+/* ---------- SQL-консоль (MariaDB / PostgreSQL) ---------- */
+async function dbSqlDlg(db, engine) {
+    if (!engine && !db)
+        engine = (dbEngines.filter((e) => e.available)[0] || {}).id || 'mysql';
+    let dbs = [];
+    try {
+        dbs = (await api('/api/db')).dbs;
+    }
+    catch (e) { }
+    if (db && !engine) {
+        const row = dbs.find((x) => x.name === db);
+        engine = row ? (row.engine || 'mysql') : 'mysql';
+    }
+    const list = engine ? dbs.filter((x) => (x.engine || 'mysql') === engine) : dbs;
+    if (db)
+        list.unshift({ name: db, engine: engine || 'mysql' });
+    if (!list.length) {
+        toastErr(new Error('базы данных не найдены'));
+        return;
+    }
+    if (!engine)
+        engine = list[0].engine || 'mysql';
+    sqlEngine = engine;
+    const opts = list.map((x) => '<option value="' + esc(x.name) + '"' +
+        (x.name === db ? ' selected' : '') + '>' + esc(x.name) +
+        ((x.engine || 'mysql') !== engine ? ' · ' + dbEngName(x.engine || 'mysql') : '') +
+        '</option>').join('');
+    const hist = sqlHist.map((q, i) => '<option value="' + i + '">' + esc(q.slice(0, 60)) + (q.length > 60 ? '…' : '') + '</option>').join('');
+    modal('SQL-консоль — ' + (engine === 'pg' ? 'PostgreSQL' : 'MySQL'), '<div class="row"><div class="field" style="flex:1"><label>База данных</label>' +
+        '<select id="sql-db">' + opts + '</select></div>' +
+        (hist ? '<div class="field" style="flex:1"><label>История</label>' +
+            '<select id="sql-hist" onchange="sqlHistPick(this.value)">' +
+            '<option value="">—</option>' + hist + '</select></div>' : '') + '</div>' +
+        '<div id="sql-wrap"></div>' +
+        '<div class="faint" style="font-size:11.5px;margin-top:6px">Ctrl+Enter — выполнить. Запросы выполняются от ' +
+        (engine === 'pg' ? 'администратора PostgreSQL (postgres)' : 'root MySQL') + '.</div>' +
+        '<div id="sql-out" style="margin-top:10px"></div>', '<button class="btn primary" onclick="dbSqlRun()">' + icon('check', 15) + ' Выполнить</button>' +
+        '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+    sqlApi = mountCodeEditor(document.getElementById('sql-wrap'), db ? (engine === 'pg' ? "SELECT table_name FROM information_schema.tables WHERE table_schema='public';" : 'SHOW TABLES;')
+        : (engine === 'pg' ? 'SELECT version();' : 'SELECT 1;'), 'sql');
+    const ta = document.querySelector('#sql-wrap .code-input');
+    ta.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            dbSqlRun();
+        }
+    });
+}
+function sqlHistPick(i) {
+    if (sqlApi)
+        $('#sql-text').value = sqlHist[+i] || '';
+}
+async function dbSqlRun() {
+    const db = $('#sql-db').value;
+    const sql = sqlApi.get().trim();
+    const out = document.getElementById('sql-out');
+    if (!sql) {
+        toast('пустой запрос', 'warn');
+        return;
+    }
+    if (/^\s*(DROP|TRUNCATE|DELETE|UPDATE|ALTER|RENAME)\b/i.test(sql) && !sqlConfirmed) {
+        confirmDlg('Опасная операция', 'Запрос <b>' + esc(sql.slice(0, 80)) + '</b> изменяет или удаляет данные. Выполнить?', () => { sqlConfirmed = true; dbSqlRun(); setTimeout(() => { sqlConfirmed = false; }, 500); });
+        return;
+    }
+    out.innerHTML = '<div class="empty">Выполняется…</div>';
+    try {
+        const r = await api('/api/db/query', { method: 'POST', body: { db, sql, engine: sqlEngine || 'mysql' } });
+        sqlHist = [sql].concat(sqlHist.filter((q) => q !== sql)).slice(0, 15);
+        if (r.columns && r.columns.length) {
+            out.innerHTML = '<div class="notice ok" style="margin-bottom:8px">' + esc(r.info) + '</div>' +
+                '<div class="twrap" style="max-height:300px;overflow:auto"><table><thead><tr>' +
+                r.columns.map((c) => '<th class="mono">' + esc(c) + '</th>').join('') +
+                '</tr></thead><tbody>' +
+                r.rows.map((row) => '<tr>' + row.map((cell) => '<td class="mono">' + esc(cell) + '</td>').join('') + '</tr>').join('') +
+                '</tbody></table></div>';
+        }
+        else {
+            out.innerHTML = '<div class="notice ok">' + esc(r.info || 'выполнено') + '</div>';
+        }
+    }
+    catch (e) {
+        out.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+    }
+}
+function dbDel(name, engine) {
+    confirmDlg('Удалить базу', 'База <b>' + esc(name) + '</b> и её данные будут удалены безвозвратно.', async () => {
+        try {
+            const r = await api('/api/db/delete', { method: 'POST', body: { name, engine: engine || 'mysql' } });
+            toast(esc(r.message));
+            go('dbs');
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    });
+}
+registerPage('dbs', pgDbs);
+export { pgDbs, dbFilterSet, dbCreateDlg, dbCreate, dbCredsModal, pgDbsRefresh, dbImportDlg, dbImportRun, dbPassDlg, dbPwUserPick, dbPassSave, dbSqlDlg, sqlHistPick, dbSqlRun, dbDel };

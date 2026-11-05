@@ -1,0 +1,168 @@
+/* ============ Страница: Файловый менеджер ============ */
+import { api } from '../api/client.js';
+import { icon } from '../core/icons.js';
+import { esc, fmtSize, $ } from '../core/format.js';
+import { me } from '../core/state.js';
+import { registerPage, go } from '../core/router.js';
+import { toast, toastErr } from '../components/toast.js';
+import { modal, closeModal, confirmDlg } from '../components/modal.js';
+import { mountCodeEditor, prismLangFromPath } from '../components/code-editor.js';
+let fmPath = '';
+let fmData = null;
+let edApi = null;
+async function pgFiles(c, startPath) {
+    c.innerHTML = '<div class="empty">Загрузка…</div>';
+    if (startPath)
+        fmPath = startPath;
+    if (!fmPath)
+        fmPath = me.demo ? '' : me.www_root;
+    let d;
+    try {
+        d = await api('/api/files?path=' + encodeURIComponent(fmPath));
+    }
+    catch (e) {
+        c.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+        fmPath = '';
+        return;
+    }
+    fmData = d;
+    const parts = d.path === '/' ? [] : d.path.split('/').filter(Boolean);
+    let bread = '<button onclick="fmGo(\'/\')">/ корень</button>';
+    let acc = '';
+    parts.forEach((p) => {
+        acc += '/' + p;
+        bread += '<span class="sep">›</span><button onclick="fmGo(\'' + esc(acc) + '\')">' + esc(p) + '</button>';
+    });
+    c.innerHTML =
+        '<div class="toolbar">' +
+            '<button class="btn" onclick="fmMkdirDlg()">' + icon('plus', 15) + ' Папка</button>' +
+            '<button class="btn" onclick="document.getElementById(\'fm-upload\').click()">' + icon('up', 15) + ' Загрузить</button>' +
+            '<input type="file" id="fm-upload" class="hidden" onchange="fmUpload(this)">' +
+            '<button class="btn" onclick="go(\'files\')">' + icon('refresh', 15) + ' Обновить</button>' +
+            '<span class="spacer"></span><span class="muted" style="font-size:12.5px" id="fm-count"></span></div>' +
+            '<div class="card" style="padding:10px"><div class="bread" style="margin-bottom:10px">' + bread + '</div>' +
+            '<div class="twrap"><table>' +
+            '<thead><tr><th>Имя</th><th>Размер</th><th>Изменён</th><th>Права</th><th>Владелец</th><th></th></tr></thead><tbody>' +
+            (d.parent ? '<tr><td colspan="6"><button class="btn sm" onclick="fmGo(\'' + esc(d.parent) + '\')">← вверх</button></td></tr>' : '') +
+            d.items.map(fmRow).join('') +
+            '</tbody></table></div></div>';
+    const cnt = document.getElementById('fm-count');
+    if (cnt)
+        cnt.textContent = 'Объектов: ' + d.items.length;
+}
+function fmRow(e) {
+    const isDir = e.type === 'dir';
+    const icoName = isDir ? 'folder' : 'file';
+    const base = e.name.replace(/\/$/, '');
+    const full = (fmData.path === '/' ? '' : fmData.path) + '/' + base;
+    const q = encodeURIComponent(full);
+    const acts = (isDir ? '<button class="btn sm icon" title="Открыть" onclick="fmGo(decodeURIComponent(\'' + q + '\'))">' + icon('ext', 13) + '</button>' : '') +
+        (!isDir && e.editable ? '<button class="btn sm icon" title="Редактировать" onclick="fmEdit(decodeURIComponent(\'' + q + '\'))">' + icon('edit', 13) + '</button>' : '') +
+        (!isDir ? '<button class="btn sm icon" title="Скачать" onclick="location.href=\'/api/files/download?path=' + q + '\'">' + icon('down', 13) + '</button>' : '') +
+        (/\.(zip|tar|gz|tgz)$/i.test(e.name) ? '<button class="btn sm icon" title="Распаковать" onclick="fmExtract(decodeURIComponent(\'' + q + '\'))">' + icon('archive', 13) + '</button>' : '') +
+        '<button class="btn sm icon" title="Переименовать" onclick="fmRename(decodeURIComponent(\'' + q + '\'), \'' + esc(base) + '\')">' + icon('edit', 13) + '</button>' +
+        '<button class="btn sm icon danger" title="Удалить" onclick="fmDel(decodeURIComponent(\'' + q + '\'), \'' + esc(base) + '\')">' + icon('trash', 13) + '</button>';
+    return '<tr><td><span class="row" style="gap:8px;flex-wrap:nowrap"><span class="muted">' + icon(icoName, 15) + '</span>' +
+        '<span class="mono" style="word-break:break-all">' + esc(e.name) + '</span>' +
+        (e.type === 'link' ? ' <span class="faint mono">→ ' + esc(e.target) + '</span>' : '') + '</span></td>' +
+        '<td>' + (isDir ? '—' : fmtSize(e.size)) + '</td><td class="muted">' + esc(e.mtime) + '</td>' +
+        '<td class="mono">' + esc(e.perms) + '</td><td class="muted">' + esc(e.owner) + '</td>' +
+        '<td><div class="actions-cell">' + acts + '</div></td></tr>';
+}
+function fmGoTo(p) { fmPath = p; go('files'); }
+function fmGo(p) { fmGoTo(p); }
+function fmMkdirDlg() {
+    modal('Новая папка', '<div class="field"><label>Имя папки</label><input type="text" id="mk-name"></div>', '<button class="btn primary" onclick="fmMkdir()">Создать</button><button class="btn" onclick="closeModal()">Отмена</button>');
+}
+async function fmMkdir() {
+    try {
+        const r = await api('/api/files/mkdir', { method: 'POST', body: { path: fmData.path + '/' + $('#mk-name').value } });
+        toast(esc(r.message));
+        closeModal();
+        fmGo(fmData.path);
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+async function fmEdit(path) {
+    try {
+        const d = await api('/api/files/read?path=' + encodeURIComponent(path));
+        modal('Файл: ' + esc(path), '<div id="ed-wrap"></div>' +
+            '<div class="faint" style="font-size:11.5px;margin-top:6px">подсветка: ' +
+            esc(prismLangFromPath(path)) + ' · Tab — отступ</div>', '<button class="btn primary" onclick="fmSave(decodeURIComponent(\'' + encodeURIComponent(path) + '\'))">' + icon('check', 15) + ' Сохранить</button>' +
+            '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+        edApi = mountCodeEditor(document.getElementById('ed-wrap'), d.content || '', prismLangFromPath(path));
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+async function fmSave(path) {
+    try {
+        const r = await api('/api/files/save', { method: 'POST', body: { path, content: edApi.get() } });
+        toast(esc(r.message));
+        closeModal();
+        fmGo(fmPath);
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function fmDel(path, name) {
+    confirmDlg('Удалить', 'Удалить <b>' + esc(name) + '</b>?', async () => {
+        try {
+            const r = await api('/api/files/delete', { method: 'POST', body: { paths: [path] } });
+            toast(esc(r.message));
+            fmGo(fmPath);
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    });
+}
+function fmRename(path, oldName) {
+    modal('Переименовать', '<div class="field"><label>Новое имя</label><input type="text" id="rn-name" value="' + esc(oldName) + '"></div>', '<button class="btn primary" onclick="fmRenameDo(decodeURIComponent(\'' + encodeURIComponent(path) + '\'))">OK</button><button class="btn" onclick="closeModal()">Отмена</button>');
+}
+async function fmRenameDo(path) {
+    try {
+        const r = await api('/api/files/rename', { method: 'POST', body: { path, new_name: $('#rn-name').value } });
+        toast(esc(r.message));
+        closeModal();
+        fmGo(fmPath);
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+async function fmUpload(input) {
+    if (!input.files.length)
+        return;
+    const fd = new FormData();
+    fd.append('file', input.files[0]);
+    try {
+        const r = await fetch('/api/files/upload?dest=' + encodeURIComponent(fmPath), {
+            method: 'POST', body: fd
+        });
+        const j = await r.json();
+        if (!j.ok)
+            throw new Error(j.error);
+        toast(esc(j.message));
+        fmGo(fmPath);
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+async function fmExtract(path) {
+    try {
+        const r = await api('/api/files/extract', { method: 'POST', body: { path } });
+        toast(esc(r.message));
+        fmGo(fmPath);
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+registerPage('files', pgFiles);
+export { pgFiles, fmRow, fmGoTo, fmGo, fmMkdirDlg, fmMkdir, fmEdit, fmSave, fmDel, fmRename, fmRenameDo, fmUpload, fmExtract };

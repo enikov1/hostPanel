@@ -36,6 +36,31 @@ def _cfg():
             or {"email": {}, "tg": {}})
 
 
+# типы событий: ключ -> название (для UI). Отсутствующий ключ в настройках
+# считается включённым (True) — обратная совместимость со старыми конфигами.
+EVENTS = {
+    "site_down": "Сайт недоступен",
+    "site_recover": "Сайт восстановился",
+    "backup": "Резервные копии (создание/восстановление)",
+    "cert": "Сертификаты (перевыпуск, истечение)",
+    "password": "Смена паролей и реквизитов",
+    "security": "Безопасность (входы в панель, fail2ban)",
+}
+
+
+def event_enabled(event):
+    """Включено ли уведомление о событии (по умолчанию — да)."""
+    ev = _cfg().get("events") or {}
+    return bool(ev.get(event, True))
+
+
+def send_event(event, subject, text):
+    """send() с проверкой типа события; возвращает None если выключено."""
+    if not event_enabled(event):
+        return None
+    return send(subject, text)
+
+
 def configured():
     """Включён ли хотя бы один канал."""
     c = _cfg()

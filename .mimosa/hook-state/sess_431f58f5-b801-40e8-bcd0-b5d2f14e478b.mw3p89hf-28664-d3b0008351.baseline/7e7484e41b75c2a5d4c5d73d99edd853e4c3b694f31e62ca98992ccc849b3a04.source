@@ -1,0 +1,85 @@
+/* ============ Роутер: боковое меню, hash-навигация ============ */
+import { icon } from './icons.js';
+import { esc } from './format.js';
+import { me, page, setPage } from './state.js';
+import { transformTables } from '../components/tables.js';
+export const NAV = [
+    { id: 'overview', t: 'Обзор', ic: 'activity', g: 'Главное',
+        d: 'Состояние сервера и первые шаги' },
+    { id: 'health', t: 'Живучесть', ic: 'shield', g: 'Главное',
+        d: 'Работают ли ваши сайты прямо сейчас' },
+    { id: 'services', t: 'Службы', ic: 'server', g: 'Главное',
+        d: 'Что запущено на сервере' },
+    { id: 'sites', t: 'Сайты', ic: 'globe', g: 'Ваш проект',
+        d: 'Создание и настройка сайтов' },
+    { id: 'dbs', t: 'Базы данных', ic: 'db', g: 'Ваш проект',
+        d: 'MariaDB и PostgreSQL: создание, пароли, импорт/экспорт' },
+    { id: 'mail', t: 'Почта', ic: 'ext', g: 'Ваш проект',
+        d: 'Почтовые ящики на вашем домене' },
+    { id: 'files', t: 'Файловый менеджер', ic: 'folder', g: 'Ваш проект',
+        d: 'Файлы сайтов: загрузка и правка' },
+    { id: 'backups', t: 'Резервные копии', ic: 'archive', g: 'Ваш проект',
+        d: 'Копии сайтов и баз — восстановление в один клик' },
+    { id: 'cron', t: 'Планировщик', ic: 'clock', g: 'Ваш проект',
+        d: 'Задания по расписанию' },
+    { id: 'software', t: 'Установка ПО', ic: 'pkg', g: 'Система',
+        d: 'PHP, базы данных и другие программы' },
+    { id: 'swset', t: 'Настройки ПО', ic: 'gear', g: 'Система',
+        d: 'Пароли, параметры и конфиги установленных служб' },
+    { id: 'packages', t: 'Пакеты и обновления', ic: 'pkg', g: 'Система',
+        d: 'Обновления сервера и PHP-модули' },
+    { id: 'firewall', t: 'Брандмауэр', ic: 'shield', g: 'Система',
+        d: 'Какие порты открыты наружу' },
+    { id: 'term', t: 'Командная строка', ic: 'term', g: 'Система',
+        d: 'Для опытных: команды прямо на сервере', expert: true },
+    { id: 'settings', t: 'Настройки', ic: 'gear', g: 'Система',
+        d: 'Пароль, тема и параметры панели' },
+];
+const PAGES = {};
+/** Страницы регистрируют себя при первом импорте модуля. */
+export function registerPage(id, fn) {
+    PAGES[id] = fn;
+}
+/** Хук обновления колокольчика (регистрируется в boot). */
+let bellBadgeUpdater = null;
+export function setBellUpdater(fn) { bellBadgeUpdater = fn; }
+export function buildNav() {
+    let html = '', group = '';
+    NAV.forEach((n) => {
+        if (n.expert && !me.expert)
+            return; // простой режим скрывает эксперта
+        if (n.g !== group) {
+            group = n.g;
+            html += '<div class="sb-group">' + group + '</div>';
+        }
+        html += '<button class="sb-item" data-p="' + n.id + '" onclick="go(\'' + n.id + '\')" title="' + esc(n.d || n.t) + '">' +
+            icon(n.ic, 16) + '<span>' + n.t + '</span></button>';
+    });
+    document.querySelector('#nav').innerHTML = html;
+}
+export function go(p) {
+    const navItem = NAV.find((x) => x.id === p);
+    if (navItem && navItem.expert && !me.expert)
+        p = 'overview'; // простой режим
+    setPage(p);
+    document.querySelectorAll('.sb-item').forEach((b) => b.classList.toggle('active', b.dataset.p === p));
+    const n = NAV.find((x) => x.id === p);
+    document.querySelector('#tb-title').textContent = n ? n.t : 'Обзор';
+    document.querySelector('#tb-sub').textContent = n && n.d ? n.d : '';
+    location.hash = p;
+    const c = document.querySelector('#content');
+    const fn = PAGES[p] || PAGES['overview'];
+    Promise.resolve(fn(c))
+        .then(() => transformTables(c))
+        .catch(() => { });
+    if (bellBadgeUpdater)
+        bellBadgeUpdater();
+    c.classList.remove('page');
+    void c.offsetWidth;
+    c.classList.add('page');
+}
+window.addEventListener('hashchange', () => {
+    const p = location.hash.slice(1);
+    if (p && p !== page && NAV.some((n) => n.id === p))
+        go(p);
+});

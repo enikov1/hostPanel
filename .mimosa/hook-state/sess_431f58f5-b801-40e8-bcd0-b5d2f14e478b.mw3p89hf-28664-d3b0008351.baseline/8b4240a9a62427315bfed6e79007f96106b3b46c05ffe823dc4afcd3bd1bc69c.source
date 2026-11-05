@@ -1,0 +1,388 @@
+'use strict';
+/* ============ Навигация и запуск ============ */
+const NAV = [
+  {id:'overview', t:'Обзор', ic:'activity', g:'Главное',
+   d:'Состояние сервера и первые шаги'},
+  {id:'health', t:'Живучесть', ic:'shield', g:'Главное',
+   d:'Работают ли ваши сайты прямо сейчас'},
+  {id:'services', t:'Службы', ic:'server', g:'Главное',
+   d:'Что запущено на сервере'},
+  {id:'sites', t:'Сайты', ic:'globe', g:'Ваш проект',
+   d:'Создание и настройка сайтов'},
+  {id:'dbs', t:'Базы данных', ic:'db', g:'Ваш проект',
+   d:'MariaDB и PostgreSQL: создание, пароли, импорт/экспорт'},
+  {id:'mail', t:'Почта', ic:'ext', g:'Ваш проект',
+   d:'Почтовые ящики на вашем домене'},
+  {id:'files', t:'Файловый менеджер', ic:'folder', g:'Ваш проект',
+   d:'Файлы сайтов: загрузка и правка'},
+  {id:'backups', t:'Резервные копии', ic:'archive', g:'Ваш проект',
+   d:'Копии сайтов и баз — восстановление в один клик'},
+  {id:'cron', t:'Планировщик', ic:'clock', g:'Ваш проект',
+   d:'Задания по расписанию'},
+  {id:'software', t:'Установка ПО', ic:'pkg', g:'Система',
+   d:'PHP, базы данных и другие программы'},
+  {id:'swset', t:'Настройки ПО', ic:'gear', g:'Система',
+   d:'Пароли, параметры и конфиги установленных служб'},
+  {id:'packages', t:'Пакеты и обновления', ic:'pkg', g:'Система',
+   d:'Обновления сервера и PHP-модули'},
+  {id:'firewall', t:'Брандмауэр', ic:'shield', g:'Система',
+   d:'Какие порты открыты наружу'},
+  {id:'term', t:'Командная строка', ic:'term', g:'Система',
+   d:'Для опытных: команды прямо на сервере', expert:true},
+  {id:'settings', t:'Настройки', ic:'gear', g:'Система',
+   d:'Пароль, тема и параметры панели'},
+];
+let PAGE = 'overview';
+function buildNav(){
+  let html = '', group = '';
+  NAV.forEach(n => {
+    if (n.expert && !ME.expert) return;   // простой режим скрывает эксперта
+    if (n.g !== group) { group = n.g; html += '<div class="sb-group">'+group+'</div>'; }
+    html += '<button class="sb-item" data-p="'+n.id+'" onclick="go(\''+n.id+'\')" title="'+esc(n.d||n.t)+'">' +
+            icon(n.ic,16) + '<span>'+n.t+'</span></button>';
+  });
+  $('#nav').innerHTML = html;
+}
+function go(p){
+  const navItem = NAV.find(x => x.id === p);
+  if (navItem && navItem.expert && !ME.expert) p = 'overview';  // простой режим
+  PAGE = p;
+  document.querySelectorAll('.sb-item').forEach(b =>
+    b.classList.toggle('active', b.dataset.p === p));
+  const n = NAV.find(x => x.id === p);
+  $('#tb-title').textContent = n ? n.t : 'Обзор';
+  $('#tb-sub').textContent = n && n.d ? n.d : '';
+  location.hash = p;
+  const c = $('#content');
+  const pages = {overview: pgOverview, health: pgHealth, services: pgServices,
+    sites: pgSites, dbs: pgDbs, mail: pgMail, files: pgFiles, backups: pgBackups,
+    cron: pgCron, packages: pgPackages, software: pgSoftware, swset: pgSwset,
+    firewall: pgFirewall, term: pgTerm, settings: pgSettings};
+  Promise.resolve((pages[p] || pgOverview)(c))
+    .then(() => transformTables(c))
+    .catch(() => {});
+  if (window.updateBellBadge) updateBellBadge();
+  c.classList.remove('page'); void c.offsetWidth; c.classList.add('page');
+}
+/* мобильный режим: заголовки столбцов -> подписи в ячейках-карточках */
+function transformTables(root){
+  (root || document).querySelectorAll('table').forEach(t => {
+    const heads = Array.from(t.querySelectorAll('thead th'))
+      .map(th => th.textContent.trim());
+    if (!heads.length) return;
+    t.querySelectorAll('tbody tr').forEach(tr => {
+      Array.from(tr.children).forEach((td, i) =>
+        td.setAttribute('data-l', heads[i] || ''));
+    });
+  });
+}
+window.addEventListener('hashchange', () => {
+  const p = location.hash.slice(1);
+  if (p && p !== PAGE && NAV.some(n => n.id === p)) go(p);
+});
+
+/* ---------- вход/выход ---------- */
+async function doLogin(){
+  const btn = $('#lg-btn'); btn.disabled = true;
+  const twoFa = !$('#lg-2fa').classList.contains('hidden');
+  try {
+    const r = await fetch('/api/login', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({login: $('#lg-user').value,
+        password: $('#lg-pass').value,
+        code: twoFa ? $('#lg-code').value : undefined})});
+    const j = await r.json();
+    if (j.need_code) {
+      $('#lg-2fa').classList.remove('hidden');
+      $('#lg-code').focus();
+      throw new Error(j.error || 'введите код');
+    }
+    if (!j.ok) throw new Error(j.error || 'ошибка входа');
+    location.reload();
+  } catch(e) { $('#lg-hint').innerHTML = '<span style="color:var(--err)">' + esc(e.message) + '</span>'; }
+  btn.disabled = false;
+}
+async function doLogout(){
+  try { await api('/api/logout', {method:'POST', body:{}}); } catch(e){}
+  updateLoginHint();
+  showLogin();
+}
+
+/* ---------- принудительная смена стандартного пароля ---------- */
+function forcePwModal(){
+  // окно появляется и после первого входа (admin/admin), и после
+  // аварийного сброса пароля из консоли — во втором случае текущий
+  // пароль не 'admin', и его нужно спросить у пользователя
+  const isDefault = window._defaultPw === true;
+  modal('Смените пароль',
+    (isDefault
+      ? '<div class="notice warn" style="margin-top:2px">Вы вошли со стандартным паролем ' +
+        '<b class="mono">admin</b>. Это небезопасно — панель открыта из интернета. ' +
+        'Придумайте свой пароль прямо сейчас.</div>'
+      : '<div class="notice warn" style="margin-top:2px">Пароль был сброшен из консоли. ' +
+        'Задайте свой собственный пароль прямо сейчас.</div>') +
+    (!isDefault
+      ? '<div class="field"><label>Текущий пароль (временный, из сообщения поддержки)</label>' +
+        '<input type="password" id="fp-old" autocomplete="current-password"></div>'
+      : '') +
+    pwField('fp-new', {label:'Новый пароль', hint:'Нажмите «сгенерировать» — создастся надёжный пароль. Скопируйте его и сохраните в надёжном месте.'}) +
+    '<div class="field"><label>Повторите пароль</label>' +
+    '<input type="text" id="fp-rep" class="mono" placeholder="введите пароль ещё раз"></div>',
+    '<button class="btn primary" onclick="forcePwSave()">Сохранить новый пароль</button>',
+    false, true);
+  pwBindStrength('fp-new');
+}
+async function forcePwSave(){
+  const pw = document.getElementById('fp-new').value;
+  const rep = document.getElementById('fp-rep').value;
+  const oldInp = document.getElementById('fp-old');
+  const old = oldInp ? oldInp.value : 'admin';
+  if (oldInp && !old) { toast('Введите текущий (временный) пароль', 'warn'); return; }
+  if (pw.length < 8) { toast('Пароль слишком короткий — минимум 8 символов', 'warn'); return; }
+  if (pw === 'admin') { toast('Пароль «admin» использовать нельзя', 'warn'); return; }
+  if (pw !== rep) { toast('Пароли не совпадают', 'warn'); return; }
+  try {
+    await api('/api/password/change', {method:'POST', body:{old, new:pw}});
+    MODAL_LOCKED = false;
+    closeModal();
+    ME.must_change_password = false;
+    window._defaultPw = false;
+    updateLoginHint();
+    toast('Пароль изменён — старый больше не работает');
+    go('overview');
+    setTimeout(wizardWelcome, 400);
+  } catch(e) { toastErr(e); }
+}
+
+/* ---------- welcome-мастер первого запуска -------------------------------
+   Показывается один раз (после смены стандартного пароля): предлагает
+   включить 2FA и создать первый сайт. Повторное появление гасится
+   флагом hp_wizard_done в localStorage. */
+async function wizardWelcome(){
+  let done2fa = false;
+  try { done2fa = (await api('/api/totp/status')).enabled; } catch(e){}
+  if (done2fa) { window._wz2fa = null; }
+  else {
+    try { window._wz2fa = await api('/api/totp/setup'); }
+    catch(e) { window._wz2fa = null; }
+  }
+  const tfa = window._wz2fa;
+  // QR: /api/totp/qr возвращает JSON с SVG — грузим api()-м и вставляем
+  // (нельзя как <img src>: это не картинка, а JSON)
+  const qr = (tfa && tfa.qr && tfa.uri)
+    ? '<div id="wz-qr" style="width:170px;min-height:170px;background:#fff;' +
+      'border-radius:10px;padding:6px;text-align:center"></div>' : '';
+  const step1 = tfa
+    ? '<div class="kv" style="margin-bottom:6px"><b>Шаг 1</b>' +
+      '<span>Включите двухфакторную защиту — даже если пароль утечёт, без кода из приложения в панель не войти.</span></div>' +
+      '<div class="row" style="gap:16px;align-items:flex-start">' + qr +
+      '<div style="flex:1;min-width:220px">' +
+      '<div class="muted" style="font-size:13px;line-height:1.55">Установите приложение-аутентификатор (Google Authenticator, Яндекс.Ключ и т.п.), отсканируйте QR-код или введите ключ вручную:</div>' +
+      '<div class="mono" style="font-size:14px;margin:8px 0;word-break:break-all;user-select:all">' + esc(tfa.secret) + '</div>' +
+      '<div class="field"><label>Код из приложения (6 цифр)</label>' +
+      '<input type="text" id="wz-code" class="mono" maxlength="6" inputmode="numeric" autocomplete="one-time-code"></div>' +
+      '</div></div>'
+    : '<div class="kv" style="margin-bottom:6px"><b>Шаг 1</b>' +
+      '<span>Двухфакторная защита уже включена — отлично!</span></div>';
+  const foot = tfa
+    ? '<button class="btn primary" onclick="wizard2faEnable()">Включить 2FA</button>' +
+      '<button class="btn" onclick="wizardDone(true)">Не включать — сразу к сайту</button>' +
+      '<button class="btn" onclick="wizardDone()">Закрыть</button>'
+    : '<button class="btn primary" onclick="wizardDone(true)">Создать сайт</button>' +
+      '<button class="btn" onclick="wizardDone()">Готово</button>';
+  modal('Добро пожаловать в HostPanel!',
+    '<div class="notice ok">Панель готова к работе. Два коротких шага — и всё под защитой.</div>' +
+    step1 +
+    '<div class="kv" style="margin-top:14px"><b>Шаг 2</b>' +
+    '<span>Создайте первый сайт: домен, версия PHP и база данных — мастер проведёт по шагам.</span></div>',
+    foot, true, false);
+  const codeEl = document.getElementById('wz-code');
+  if (codeEl) { codeEl.focus(); codeEl.addEventListener('keydown',
+    e => { if (e.key === 'Enter') wizard2faEnable(); }); }
+  // загрузка QR-картинки (JSON → SVG → innerHTML)
+  if (tfa && tfa.qr && tfa.uri) {
+    api('/api/totp/qr?uri=' + encodeURIComponent(tfa.uri)).then(q => {
+      const el = document.getElementById('wz-qr');
+      if (el && q.svg) el.innerHTML =
+        q.svg.replace('<svg', '<svg style="width:158px;height:158px"');
+    }).catch(() => {});  // без QR остаётся ручной ввод ключа
+  }
+}
+async function wizard2faEnable(){
+  const tfa = window._wz2fa;
+  const code = (document.getElementById('wz-code') || {}).value || '';
+  if (!tfa) return;
+  try {
+    await api('/api/totp/enable', {method:'POST',
+      body:{secret: tfa.secret, code: code.trim()}});
+    toast('Двухфакторная защита включена. При следующем входе нужен код из приложения');
+    wizardDone(true);
+  } catch(e){ toastErr(e); }
+}
+function wizardDone(createSite){
+  try { localStorage.setItem('hp_wizard_done', '1'); } catch(e){}
+  window._wz2fa = null;
+  closeModal();
+  if (createSite) wizardSite();
+}
+
+/* ---------- колокольчик: уведомления ---------- */
+async function updateBellBadge(){
+  const bell = document.getElementById('btn-bell');
+  if (!bell) return;
+  let d;
+  try { d = await api('/api/notifications'); } catch(e){ return; }
+  const list = d.notifications || [];
+  const last = +(localStorage.getItem('hp_last_read') || 0);
+  let unread = 0;
+  list.forEach(n => {
+    const t = new Date((n.ts || '').replace(' ', 'T')).getTime() || 0;
+    if (t > last) unread++;
+  });
+  let b = document.getElementById('bell-badge');
+  if (!unread) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('span');
+    b.id = 'bell-badge';
+    bell.style.position = 'relative';
+    bell.appendChild(b);
+  }
+  b.textContent = unread > 9 ? '9+' : unread;
+}
+function initBell(){
+  const bell = document.getElementById('btn-bell');
+  if (!bell) return;
+  const drop = document.createElement('div');
+  drop.id = 'bell-drop';
+  document.body.appendChild(drop);
+  bell.onclick = async () => {
+    if (drop.style.display === 'block') { drop.style.display = 'none'; return; }
+    let d;
+    try { d = await api('/api/notifications'); } catch(e){ return; }
+    const list = d.notifications || [];
+    drop.innerHTML = '<div class="bd-h"><b>Уведомления</b>' +
+      '<span style="flex:1"></span>' +
+      '<button class="btn sm" id="bell-clear">Очистить</button></div>' +
+      (list.length ? list.slice(0, 12).map(n =>
+        '<div class="bell-item ' + esc(n.level || 'info') + '">' +
+        '<span class="faint" style="width:86px;flex-shrink:0">' +
+        esc((n.ts || '').slice(5, 16)) + '</span><span>' + esc(n.text) +
+        '</span></div>').join('')
+        : '<div class="empty" style="padding:14px">уведомлений нет</div>');
+    const rect = bell.getBoundingClientRect();
+    drop.style.top = (rect.bottom + 8) + 'px';
+    drop.style.right = (window.innerWidth - rect.right) + 'px';
+    drop.style.display = 'block';
+    document.getElementById('bell-clear').onclick = async () => {
+      try { await api('/api/notifications/read', {method:'POST', body:{}});
+      } catch(e){}
+      localStorage.setItem('hp_last_read', String(Date.now()));
+      drop.style.display = 'none';
+      updateBellBadge();
+    };
+    localStorage.setItem('hp_last_read', String(Date.now()));
+    updateBellBadge();
+  };
+}
+
+/* ---------- глобальный поиск ---------- */
+function initGlobalSearch(){
+  const inp = document.getElementById('global-search');
+  if (!inp) return;
+  let drop = document.createElement('div');
+  drop.id = 'gs-drop';
+  document.body.appendChild(drop);
+  const hide = () => { setTimeout(() => { drop.style.display = 'none'; }, 150); };
+  inp.addEventListener('input', async () => {
+    const q = inp.value.trim();
+    if (q.length < 2) { drop.style.display = 'none'; return; }
+    let d;
+    try { d = await api('/api/search?q=' + encodeURIComponent(q)); }
+    catch(e){ drop.style.display = 'none'; return; }
+    const res = d.results || [];
+    if (!res.length) { drop.style.display = 'none'; return; }
+    drop.innerHTML = res.map((r, i) =>
+      '<div class="gs-item" data-i="' + i + '">' +
+      '<span class="pill gray">' + esc(r.hint) + '</span> ' + esc(r.title) + '</div>').join('');
+    window._gsRes = res;
+    const rect = inp.getBoundingClientRect();
+    drop.style.left = rect.left + 'px';
+    drop.style.top = (rect.bottom + 6) + 'px';
+    drop.style.width = Math.max(rect.width, 300) + 'px';
+    drop.style.display = 'block';
+    drop.querySelectorAll('.gs-item').forEach(item => {
+      item.onclick = () => {
+        const r = window._gsRes[+item.dataset.i];
+        inp.value = ''; drop.style.display = 'none';
+        if (r.type === 'site') { go('sites'); siteDlg(r.site_id); }
+        else go(r.page);
+      };
+    });
+  });
+  inp.addEventListener('keydown', e => { if (e.key === 'Escape') { inp.value = ''; hide(); } });
+  inp.addEventListener('blur', hide);
+}
+
+/* ---------- запуск ---------- */
+function updateLoginHint(){
+  const el = document.getElementById('lg-hint');
+  if (el) el.style.display = window._defaultPw ? '' : 'none';
+}
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  try { localStorage.setItem('hp_theme', t); } catch(e){}
+}
+function fillIcons(){
+  document.querySelectorAll('[data-icon]').forEach(el => {
+    el.innerHTML = icon(el.dataset.icon, el.classList.contains('sm') ? 18 : 22);
+  });
+}
+async function boot(){
+  let theme = 'light';
+  try { theme = localStorage.getItem('hp_theme') || 'light'; } catch(e){}
+  applyTheme(theme);
+  buildNav();
+  // подсказка о стандартном пароле — только пока пароль действительно
+  // стандартный (флаг is_default снимается при первой смене пароля)
+  fetch('/api/login-state').then(r => r.json()).then(d => {
+    window._defaultPw = !!d.default_password;
+    updateLoginHint();
+  }).catch(() => {});
+  fillIcons();
+  $('#lg-ver').textContent = 'v';
+  $('#lg-btn').onclick = doLogin;
+  $('#lg-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  $('#lg-code').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  $('#btn-logout').onclick = doLogout;
+  $('#btn-theme').onclick = () => {
+    const cur = document.documentElement.getAttribute('data-theme');
+    applyTheme(cur === 'dark' ? 'light' : 'dark');
+  };
+  initGlobalSearch();
+  initBell();
+  updateBellBadge();
+  const back = document.createElement('div');
+  back.id = 'nav-back';
+  back.onclick = () => { $('#sidebar').classList.remove('open');
+    document.body.classList.remove('nav-open'); };
+  document.body.appendChild(back);
+  $('#btn-menu').onclick = () => { $('#sidebar').classList.toggle('open');
+    document.body.classList.toggle('nav-open'); };
+  try {
+    ME = await api('/api/me');
+    buildNav();  // ME.expert узнали только что — меню с учётом режима
+    $('#sb-ver').textContent = 'v' + ME.version;
+    $('#lg-ver').textContent = 'v' + ME.version;
+    $('#sb-foot').innerHTML = 'Сервер работает<br>Версия панели: ' + esc(ME.version);
+  } catch(e) { showLogin(); return; }
+  $('#login').classList.add('hidden');
+  $('#app').classList.remove('hidden');
+  const h = location.hash.slice(1);
+  go(NAV.some(n => n.id === h) ? h : 'overview');
+  if (ME.must_change_password) setTimeout(forcePwModal, 400);
+  setInterval(async () => {
+    if (PAGE === 'overview' && !document.getElementById('modals').classList.contains('open'))
+      go('overview');
+  }, 15000);
+}
+document.addEventListener('DOMContentLoaded', boot);

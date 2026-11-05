@@ -1,0 +1,297 @@
+/* ============ Страница: Установка ПО, ionCube, приложения (phpMyAdmin) ============ */
+import { api } from '../api/client.js';
+import { icon } from '../core/icons.js';
+import { esc, $ } from '../core/format.js';
+import { registerPage, go } from '../core/router.js';
+import { toast, toastErr } from '../components/toast.js';
+import { modal, closeModal, confirmDlg } from '../components/modal.js';
+import { pwField, pwGenerate, pwBindStrength } from '../components/pw.js';
+import { taskHistoryHtml } from './packages.js';
+import { SWSET_IDS } from './swset.js';
+const SW_ICONS = { nginx: 'globe', apache: 'server', php74: 'code', php80: 'code',
+    php81: 'code', php82: 'code', php83: 'code', php84: 'code', php85: 'code',
+    composer: 'pkg', mariadb: 'db', postgresql: 'db', redis: 'zap', memcached: 'zap',
+    postfix: 'ext', dovecot: 'archive', mailutils: 'file',
+    certbot: 'shield', fail2ban: 'shield', nodejs: 'code', git: 'folder', unzip: 'folder' };
+/* данные /api/apps — нужны странице «Сайты» (кнопка phpMyAdmin) */
+const pmaByDomain = {};
+let pmaApps = [];
+export function getPmaByDomain() { return pmaByDomain; }
+export function getPmaApps() { return pmaApps; }
+async function pgSoftware(c) {
+    c.innerHTML = '<div class="empty">Загрузка…</div>';
+    let d;
+    try {
+        d = await api('/api/software');
+    }
+    catch (e) {
+        c.innerHTML = '';
+        toastErr(e);
+        return;
+    }
+    const groups = {};
+    (d.catalog || []).forEach((s) => { groups[s.group] = groups[s.group] || []; groups[s.group].push(s); });
+    c.innerHTML =
+        '<div class="toolbar"><span class="muted" style="font-size:13px">Установка и удаление служб сервера. ' +
+            'Операции идут в фоне — прогресс виден под списком.</span></div>' +
+            '<div id="pkg-task"></div>' +
+            '<div id="apps-block"></div>' +
+            Object.keys(groups).map((g) => '<div class="card" style="padding:6px 10px;margin-bottom:12px">' +
+                '<div class="card-h" style="padding:10px 6px 0"><span class="card-t">' + esc(g) + '</span></div>' +
+                groups[g].map(swRow).join('') + '</div>').join('') +
+            '<div class="muted" style="font-size:12.5px">Перед удалением панель проверяет, не используют ли службу существующие сайты.</div>' +
+            '<div id="ioncube-block" style="margin-top:12px"><div class="empty">Загрузка ionCube…</div></div>';
+    swPoll();
+    loadIoncube();
+    appsLoad();
+}
+function swRow(s) {
+    const pill = s.status === 'active' ? '<span class="pill ok">работает</span>'
+        : s.status === 'installed' ? '<span class="pill warn">установлен</span>'
+            : '<span class="pill gray">не установлен</span>';
+    const cfg = s.status !== 'missing' && SWSET_IDS[s.id]
+        ? '<button class="btn sm" onclick="swsetGo(\'' + s.id + '\')">' + icon('gear', 14) + ' Настройки</button>' : '';
+    const btn = s.status === 'missing'
+        ? '<button class="btn sm primary" onclick="swInstall(\'' + s.id + '\')">' + icon('down', 14) + ' Установить</button>'
+        : '<button class="btn sm" onclick="swRemove(\'' + s.id + '\')">Удалить</button>';
+    return '<div class="row" style="align-items:center;padding:10px 6px;border-top:1px solid var(--border)">' +
+        '<span style="width:26px">' + icon(SW_ICONS[s.id] || 'pkg', 18) + '</span>' +
+        '<div style="flex:1;min-width:0"><b>' + esc(s.name) + '</b>' +
+        '<div class="muted" style="font-size:12.5px">' + esc(s.desc) + '</div></div>' +
+        pill + '<span style="width:10px"></span>' + cfg + '<span style="width:6px"></span>' + btn + '</div>';
+}
+let swWasRunning = false;
+async function swPoll() {
+    try {
+        const d = await api('/api/packages/task');
+        const el = document.getElementById('pkg-task');
+        if (!el)
+            return;
+        if (d.running) {
+            swWasRunning = true;
+            el.innerHTML = '<div class="notice info"><b>Выполняется:</b> ' + esc(d.kind) +
+                ' <span class="dot pulse"></span><div class="logbox" style="margin-top:8px;max-height:180px">' +
+                esc((d.log || []).join('\n')) + '</div></div>';
+            setTimeout(swPoll, 2000);
+        }
+        else {
+            el.innerHTML = swWasRunning ? taskHistoryHtml(d) : '';
+            if (swWasRunning) {
+                swWasRunning = false;
+                go('software');
+            }
+        }
+    }
+    catch (e) { }
+}
+async function swInstall(id) {
+    confirmDlg('Установить службу', 'Установить <b>' + esc(swName(id)) + '</b> через apt? Операция выполнится в фоне.', async () => {
+        try {
+            const r = await api('/api/software/install', { method: 'POST', body: { name: id } });
+            toast(esc(r.message));
+            swWasRunning = true;
+            swPoll();
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    });
+}
+async function swRemove(id) {
+    confirmDlg('Удалить службу', 'Удалить <b>' + esc(swName(id)) + '</b> с сервера? Сайты, использующие её, перестанут работать.', async () => {
+        try {
+            const r = await api('/api/software/remove', { method: 'POST', body: { name: id } });
+            toast(esc(r.message));
+            swWasRunning = true;
+            swPoll();
+            go('software');
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    });
+}
+function swName(id) {
+    const map = { nginx: 'nginx', apache: 'Apache 2.4', php74: 'PHP 7.4', php80: 'PHP 8.0',
+        php81: 'PHP 8.1', php82: 'PHP 8.2', php83: 'PHP 8.3', php84: 'PHP 8.4',
+        php85: 'PHP 8.5', composer: 'Composer', mariadb: 'MariaDB', postgresql: 'PostgreSQL',
+        redis: 'Redis', memcached: 'Memcached', certbot: 'Certbot', fail2ban: 'Fail2ban',
+        postfix: 'Postfix', dovecot: 'Dovecot', mailutils: 'Mailutils',
+        nodejs: 'Node.js + npm', git: 'Git', unzip: 'Архиваторы' };
+    return map[id] || id;
+}
+/* ---------- ionCube Loader ---------- */
+async function loadIoncube() {
+    const el = document.getElementById('ioncube-block');
+    if (!el)
+        return;
+    let d;
+    try {
+        d = await api('/api/ioncube/status');
+    }
+    catch (e) {
+        el.innerHTML = '';
+        return;
+    }
+    let rows = '';
+    (d.versions || []).forEach((v) => {
+        const pill = v.installed ? '<span class="pill ok">ionCube ' + esc(v.loader) + '</span>'
+            : '<span class="pill gray">не установлен</span>';
+        const btns = v.installed
+            ? '<button class="btn sm" onclick="ioncubeGo(\'install\',\'' + v.version + '\')">' + icon('refresh', 13) + ' Обновить</button>' +
+                '<button class="btn sm danger" onclick="ioncubeGo(\'remove\',\'' + v.version + '\')">Удалить</button>'
+            : '<button class="btn sm primary" onclick="ioncubeGo(\'install\',\'' + v.version + '\')">' + icon('down', 13) + ' Установить</button>';
+        rows += '<div class="row" style="align-items:center;padding:10px 6px;border-top:1px solid var(--border)">' +
+            '<span style="width:26px">' + icon('term', 18) + '</span>' +
+            '<div style="flex:1"><b>PHP ' + esc(v.version) + '</b></div>' +
+            pill + '<span style="width:10px"></span>' + btns + '</div>';
+    });
+    if (!rows)
+        rows = '<div class="empty">Установите любую версию PHP — она появится здесь</div>';
+    el.innerHTML = '<div class="card" style="padding:6px 10px">' +
+        '<div class="card-h" style="padding:10px 6px 0"><span class="card-t">ionCube Loader</span>' +
+        '<span class="card-spacer"></span><span class="muted" style="font-size:12px">официальные загрузчики ioncube.com · обновление = повторная установка</span></div>' +
+        rows + '</div>';
+}
+async function ioncubeGo(action, version) {
+    const what = action === 'remove' ? 'Удалить' : 'Установить/обновить';
+    confirmDlg('ionCube Loader', what + ' ionCube для <b>PHP ' + esc(version) + '</b>? ' +
+        (action === 'remove' ? 'Скрипты, требующие ionCube, перестанут работать.' : 'php-fpm будет перезапущен.'), async () => {
+        try {
+            const r = await api('/api/ioncube/' + action, { method: 'POST', body: { version } });
+            toast(esc(r.message));
+            swWasRunning = true;
+            swPoll();
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    }, action === 'remove');
+}
+/* ---------- приложения: phpMyAdmin в 1 клик ---------- */
+async function appsLoad() {
+    const el = document.getElementById('apps-block');
+    if (!el)
+        return;
+    let d;
+    try {
+        d = await api('/api/apps');
+    }
+    catch (e) {
+        el.innerHTML = '<div class="empty">' +
+            esc(e.message || 'Ошибка загрузки') + '</div>';
+        return;
+    }
+    pmaApps = d.apps || [];
+    pmaApps.forEach((a) => { pmaByDomain[a.domain] = a; });
+    const rows = pmaApps.filter((a) => a.installed).map(pmaRow).join('');
+    el.innerHTML =
+        '<div class="card"><div class="card-h"><span class="card-t">Приложения</span>' +
+            '<span class="card-spacer"></span>' +
+            '<button class="btn sm primary" onclick="pmaDlg()">' + icon('down', 14) +
+            ' Установить phpMyAdmin</button></div>' +
+            (rows || '<div class="empty">Нет PHP-сайтов — создайте сайт с PHP, ' +
+                'и phpMyAdmin можно будет поставить в 1 клик.</div>') +
+            '<div class="muted" style="font-size:12.5px;padding:4px 6px 8px">' +
+            'phpMyAdmin скачивается с официального сайта и ставится в папку /pma выбранного сайта; ' +
+            'папка закрывается отдельным паролем. К базам подключайтесь своими пользователями MySQL.</div></div>';
+}
+function pmaRow(a) {
+    const prot = a.protected
+        ? '<span class="pill ok" title="Папка закрыта паролем">с паролем</span>'
+        : '<span class="pill warn" title="Папка открыта — вход по паролю MySQL">без пароля</span>';
+    return '<div class="row" style="align-items:center;padding:10px 6px;flex-wrap:wrap;border-top:1px solid var(--border)">' +
+        '<span style="width:26px">' + icon('ext', 18) + '</span>' +
+        '<div style="flex:1;min-width:180px"><b>' + esc(a.domain) + '/pma</b>' +
+        '<div class="muted" style="font-size:12.5px">phpMyAdmin ' + esc(a.version || '5.2.2') +
+        (a.protected ? ' — вход: логин pma + пароль папки, затем пользователь MySQL'
+            : ' — вход пользователем MySQL') + '</div></div>' +
+        prot +
+        '<a class="btn sm" style="text-decoration:none" target="_blank" href="' + esc(a.url) + '">открыть</a>' +
+        '<button class="btn sm" onclick="pmaAccessDlg(\'' + esc(a.domain) + '\')">доступы</button>' +
+        '<button class="btn sm" onclick="swsetGo(\'pma\')">настройки</button>' +
+        '<button class="btn sm icon danger" title="Удалить" onclick="pmaRemoveDlg(\'' + esc(a.domain) + '\')">' +
+        icon('trash', 13) + '</button></div>';
+}
+function pmaDlg() {
+    api('/api/sites').then((d) => {
+        const sites = (d.sites || []).filter((x) => x.php);
+        if (!sites.length) {
+            toast('Сначала создайте сайт с PHP', 'warn');
+            return;
+        }
+        const opts = sites.map((x) => {
+            const ssl = (x.ssl || {}).kind !== 'none';
+            return '<option value="' + esc(x.domain) + '">' + esc(x.domain) +
+                (ssl ? ' (SSL)' : '') + '</option>';
+        }).join('');
+        modal('Установка phpMyAdmin', '<div class="field"><label>Сайт — куда установить (папка /pma)</label>' +
+            '<select id="pma-site" style="width:100%">' + opts + '</select></div>' +
+            '<label class="check" style="margin:6px 0 4px"><input type="checkbox" ' +
+            'id="pma-protect" checked onchange="pmaProtToggle()"> ' +
+            'Закрыть папку паролем (рекомендуется)</label>' +
+            '<div class="field" id="pma-pass-row">' +
+            pwField('pma-pass', { label: 'Пароль папки /pma',
+                hint: 'Появится в браузере при входе в phpMyAdmin. Сохраните — увидите его в «доступах».' }) + '</div>' +
+            '<div class="notice info">Внутри phpMyAdmin входите пользователем MySQL — ' +
+            'его можно создать в разделе «Базы данных».</div>', '<button class="btn primary" onclick="pmaInstall()">' + icon('down', 15) +
+            ' Установить</button>' +
+            '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+        setTimeout(() => { pwGenerate('pma-pass'); pwBindStrength('pma-pass'); }, 250);
+    }).catch((e) => toastErr(e));
+}
+export function pmaProtToggle() {
+    // чекбокс называется по-разному в двух диалогах установки (pma-protect / ps-protect)
+    const cb = document.getElementById('pma-protect') ||
+        document.getElementById('ps-protect');
+    const row = document.getElementById('pma-pass-row');
+    if (cb && row)
+        row.style.display = cb.checked ? '' : 'none';
+}
+async function pmaInstall() {
+    try {
+        const passEl = document.getElementById('pma-pass');
+        const r = await api('/api/apps/install', { method: 'POST', body: {
+                app: 'pma', site: $('#pma-site').value,
+                protect: $('#pma-protect').checked,
+                password: passEl ? passEl.value : ''
+            } });
+        closeModal();
+        toast(esc(r.message));
+        swPoll();
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function pmaAccessDlg(domain) {
+    const row = pmaApps.find((a) => a.domain === domain);
+    if (!row)
+        return;
+    const line = (label, val) => '<div class="row" style="justify-content:space-between;align-items:center;gap:8px;padding:3px 0">' +
+        '<span class="muted">' + label + '</span><b class="mono" style="flex:1;text-align:right">' +
+        esc(val) + '</b>' +
+        '<button class="btn sm" data-v="' + esc(val) + '" onclick="copyText(this.dataset.v, this)">' +
+        icon('file', 13) + '</button></div>';
+    modal('Доступы phpMyAdmin — ' + esc(domain), '<div class="field"><label>Адрес</label>' + line('открыть в браузере', row.url) + '</div>' +
+        (row.protected
+            ? '<div class="field"><label>Вход в папку (basic auth)</label>' +
+                line('логин', row.user) + line('пароль', row.password) + '</div>' +
+                '<div class="faint" style="font-size:12px">Затем — пользователь и пароль MySQL.</div>'
+            : '<div class="notice warn">Папка не закрыта паролем. Входите сразу пользователем MySQL.</div>'), '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+}
+export function pmaRemoveDlg(domain) {
+    confirmDlg('Удалить phpMyAdmin', 'Папка <b>/pma</b> сайта <b>' + esc(domain) + '</b> будет удалена вместе с настройками. Удалить?', async () => {
+        try {
+            const r = await api('/api/apps/remove', { method: 'POST',
+                body: { app: 'pma', site: domain } });
+            toast(esc(r.message));
+            swPoll();
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    });
+}
+registerPage('software', pgSoftware);
+export { pgSoftware, swRow, swPoll, swInstall, swRemove, swName, loadIoncube, ioncubeGo, appsLoad, pmaRow, pmaDlg, pmaInstall, pmaAccessDlg };

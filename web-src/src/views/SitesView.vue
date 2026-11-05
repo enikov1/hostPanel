@@ -126,6 +126,20 @@ function toggleSite(id: number): void {
   }, false);
 }
 
+/* Резервная копия одного сайта (site_ids поддержан бэкендом) */
+const backingUp = ref<number | null>(null);
+
+async function backupSite(id: number, domain: string): Promise<void> {
+  if (backingUp.value !== null) return;
+  backingUp.value = id;
+  try {
+    const r = await api('/api/backups/create', { method: 'POST',
+      body: { site_ids: [id], with_db: true } });
+    toast('Резервная копия создана (' + fmtSize(r.backup ? r.backup.size : 0) + ') — раздел «Резервные копии»');
+  } catch (e) { toastErr(e); }
+  backingUp.value = null;
+}
+
 function delSite(id: number, domain: string): void {
   confirmDlg('Удалить сайт',
     'Сайт ' + domain + ', его конфиги и поддомены будут удалены. Файлы в папке сайта останутся. Продолжить?',
@@ -330,6 +344,11 @@ onBeforeUnmount(() => { unmounted = true; });
                               :title="pmaOf(s.domain) ? 'phpMyAdmin установлен — открыть в новом окне' : 'Установить phpMyAdmin в папку /pma этого сайта'"
                               @click="pmaSiteDlg(s.domain)">
                         <UiIcon :name="pmaOf(s.domain) ? 'ext' : 'down'" :size="14" /> phpMyAdmin</button>
+                      <button class="btn sm icon" :class="{ warn: backingUp === s.id }"
+                              :disabled="backingUp !== null"
+                              :title="'Сделать резервную копию сайта ' + s.domain"
+                              @click="backupSite(s.id, s.domain)">
+                        <UiIcon name="archive" :size="14" /></button>
                       <button class="btn sm icon"
                               :class="{ warn: s.enabled }"
                               :title="s.enabled ? 'Остановить сайт' : 'Запустить сайт'"
@@ -364,6 +383,11 @@ onBeforeUnmount(() => { unmounted = true; });
                     <div class="actions-cell">
                       <router-link class="btn sm" :to="'/sites/' + ch.id" title="Настройки сайта">
                         <UiIcon name="gear" :size="14" /></router-link>
+                      <button class="btn sm icon" :class="{ warn: backingUp === ch.id }"
+                              :disabled="backingUp !== null"
+                              :title="'Сделать резервную копию сайта ' + ch.domain"
+                              @click="backupSite(ch.id, ch.domain)">
+                        <UiIcon name="archive" :size="14" /></button>
                       <button class="btn sm icon"
                               :title="ch.enabled ? 'Остановить сайт' : 'Запустить сайт'"
                               @click="toggleSite(ch.id)">

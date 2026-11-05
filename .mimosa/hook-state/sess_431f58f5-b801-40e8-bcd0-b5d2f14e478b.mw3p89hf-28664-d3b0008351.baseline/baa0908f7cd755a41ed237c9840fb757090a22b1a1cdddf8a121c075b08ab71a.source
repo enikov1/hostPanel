@@ -1,0 +1,51 @@
+/* ============ Страница: Брандмауэр ============ */
+import { api } from '../api/client.js';
+import { icon } from '../core/icons.js';
+import { esc, $ } from '../core/format.js';
+import { registerPage, go } from '../core/router.js';
+import { toast, toastErr } from '../components/toast.js';
+import { modal, closeModal } from '../components/modal.js';
+async function pgFirewall(c) {
+    c.innerHTML = '<div class="empty">Загрузка…</div>';
+    let d;
+    try {
+        d = await api('/api/firewall');
+    }
+    catch (e) {
+        c.innerHTML = '';
+        toastErr(e);
+        return;
+    }
+    c.innerHTML =
+        '<div class="toolbar"><span class="pill ' + (d.active ? 'ok' : 'warn') + '"><span class="dot"></span>' +
+            (d.active ? 'активен' : 'неактивен') + '</span><span class="muted">backend: ' + esc(d.backend) + '</span>' +
+            '<span class="spacer"></span><button class="btn primary" onclick="fwAddDlg()">' + icon('plus', 15) + ' Правило</button></div>' +
+            '<div class="card" style="padding:6px 10px"><div class="twrap"><table>' +
+            '<thead><tr><th>Порт</th><th>Действие</th><th>Источник</th><th>Комментарий</th></tr></thead><tbody>' +
+            d.rules.map((r) => '<tr><td class="mono">' + esc(r.port) + '</td>' +
+                '<td><span class="pill ' + (String(r.action).indexOf('allow') >= 0 || r.action === 'ALLOW' ? 'ok' : 'err') + '">' +
+                (String(r.action).indexOf('allow') >= 0 || r.action === 'ALLOW' ? 'разрешено' : 'запрещено') + '</span></td>' +
+                '<td class="muted">' + esc(r.from) + '</td><td class="muted">' + esc(r.comment || '') + '</td></tr>').join('') +
+            '</tbody></table>' + (d.rules.length ? '' : '<div class="empty">правил нет</div>') + '</div></div>' +
+            (d.banned && d.banned.length ? '<div class="card"><div class="card-h"><span class="card-t">Заблокированные IP (fail2ban)</span></div>' +
+                d.banned.map((ip) => '<span class="pill err mono" style="margin:3px">' + esc(ip) + '</span>').join('') + '</div>' : '');
+}
+function fwAddDlg() {
+    modal('Новое правило', '<div class="row"><div class="field" style="flex:1"><label>Порт</label><input type="text" id="fw-port" placeholder="8080"></div>' +
+        '<div class="field" style="flex:1"><label>Действие</label><select id="fw-act"><option value="allow">разрешить</option><option value="deny">запретить</option></select></div></div>', '<button class="btn primary" onclick="fwAdd()">Добавить</button><button class="btn" onclick="closeModal()">Отмена</button>');
+}
+async function fwAdd() {
+    try {
+        const r = await api('/api/firewall/add', { method: 'POST', body: {
+                port: $('#fw-port').value.trim(), action: $('#fw-act').value
+            } });
+        toast(esc(r.message));
+        closeModal();
+        go('firewall');
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+registerPage('firewall', pgFirewall);
+export { pgFirewall, fwAddDlg, fwAdd };

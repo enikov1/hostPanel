@@ -1,0 +1,332 @@
+/* ============ Страница: Планировщик (cron) + выбор файла ============ */
+import { api } from '../api/client';
+import { icon } from '../core/icons';
+import { esc, cronHuman, $ } from '../core/format';
+import { registerPage, go } from '../core/router';
+import { toast, toastErr } from '../components/toast';
+import { modal, closeModal, confirmDlg } from '../components/modal';
+
+const CRON_PRESETS: [string, string][] = [
+  ['* * * * *', 'каждую минуту'],
+  ['*/5 * * * *', 'каждые 5 минут'],
+  ['*/10 * * * *', 'каждые 10 минут'],
+  ['*/15 * * * *', 'каждые 15 минут'],
+  ['*/30 * * * *', 'каждые 30 минут'],
+  ['0 * * * *', 'каждый час'],
+  ['0 */2 * * *', 'каждые 2 часа'],
+  ['0 */6 * * *', 'каждые 6 часов'],
+  ['0 3 * * *', 'каждый день в 03:00'],
+  ['0 3 * * 0', 'по воскресеньям в 03:00'],
+  ['0 3 1 * *', '1-го числа в 03:00'],
+];
+
+interface CronJob { expr: string; command: string; comment?: string; enabled: boolean }
+
+let cronJobs: CronJob[] = [];
+let cronIdx: number | null = null;
+let cronState: { idx: number; expr: string; command: string; comment: string } | null = null;
+/* состояние мини-проводника по файлам (раньше — глобальные переменные fp*) */
+let fpTarget = 'cr-cmd';
+let fp: { path: string } = { path: '/var/www' };
+let fpData: any = null;
+let fpCrumbs: [string, string][] = [];
+let fpItems: string[] = [];
+
+async function pgCron(c: HTMLElement): Promise<void> {
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let d: any;
+  try { d = await api('/api/cron'); } catch (e) { c.innerHTML = ''; toastErr(e); return; }
+  cronJobs = d.jobs;
+  const humanRow = (j: CronJob) => {
+    const h = cronHuman(j.expr);
+    return h ? '<div class="faint" style="font-size:11.5px;margin-top:2px">' + esc(h) + '</div>' : '';
+  };
+  c.innerHTML =
+    '<div class="hintbox">' + icon('clock', 16) + '<div><b>Планировщик</b> запускает команду автоматически: ' +
+    'например, раз в ночь делать выгрузку базы или раз в час чистить временные файлы. ' +
+    'Интервал выбирается готовыми кнопками — писать cron вручную не обязательно.</div></div>' +
+    '<div class="toolbar"><button class="btn primary" onclick="cronDlg(-1)">' + icon('plus', 15) +
+    'Добавить задачу</button><span class="spacer"></span>' +
+    '<label class="check" style="margin:0" title="Копия всех сайтов и баз по расписанию">' +
+    '<input type="checkbox" id="cron-auto"' + (d.auto ? ' checked' : '') +
+    ' onchange="cronSave()"> Автобэкап по расписанию</label>' +
+    '<input type="text" id="cron-auto-expr" style="width:110px" value="' + esc(d.auto_cron) +
+    '" class="mono" onchange="cronSave()" oninput="document.getElementById(\'cron-auto-human\').textContent = cronHuman(this.value) || \'cron\'" title="Расписание автобэкапа">' +
+    '<span class="faint" id="cron-auto-human" style="font-size:11.5px">' + esc(cronHuman(d.auto_cron) || 'cron') + '</span>' +
+    '<label class="check" style="margin:0" title="Сертификаты Let\'s Encrypt продлеваются автоматически (certbot renew); панель предупредит, если сертификат истекает раньше чем через 14 дней">' +
+    '<input type="checkbox" id="cron-ssl"' + (d.ssl_auto ? ' checked' : '') +
+    ' onchange="cronSave()"> Автопродление SSL</label>' +
+    '<input type="text" id="cron-ssl-expr" style="width:110px" value="' + esc(d.ssl_auto_cron || '30 3,15 * * *') +
+    '" class="mono" onchange="cronSave()" title="Расписание проверки сертификатов">' +
+    '<span class="faint" style="font-size:11.5px">' + esc(cronHuman(d.ssl_auto_cron || '30 3,15 * * *') || 'cron') + '</span>' +
+    '</div>' +
+    (d.jobs.length ?
+    '<div class="card" style="padding:6px 10px"><div class="twrap"><table>' +
+    '<thead><tr><th>Расписание</th><th>Команда</th><th>Описание</th><th>Вкл.</th><th></th></tr></thead><tbody>' +
+    d.jobs.map((j: CronJob, i: number) => '<tr><td><span class="mono">' + esc(j.expr) + '</span>' + humanRow(j) + '</td>' +
+      '<td class="mono" style="word-break:break-all">' + esc(j.command) + '</td>' +
+      '<td class="muted">' + esc(j.comment || '') + '</td>' +
+      '<td><input type="checkbox" onchange="cronToggleJob(' + i + ', this.checked)"' +
+      (j.enabled ? ' checked' : '') + '></td>' +
+      '<td><div class="actions-cell">' +
+      '<button class="btn sm" title="Журнал запусков" onclick="cronLogDlg(' + i + ')">' + icon('file', 13) + '</button>' +
+      '<button class="btn sm" title="Запустить прямо сейчас — проверить, что команда работает" onclick="cronRun(' + i + ')">' + icon('play', 13) + '</button>' +
+      '<button class="btn sm" title="Изменить" onclick="cronDlg(' + i + ')">' + icon('edit', 13) + '</button>' +
+      '<button class="btn sm icon danger" title="Удалить" onclick="cronDel(' + i + ')">' + icon('trash', 13) + '</button></div></td></tr>').join('') +
+    '</tbody></table></div></div>'
+    :
+    '<div class="card" style="text-align:center;padding:46px 20px">' +
+    '<div class="empty" style="padding:0 0 12px">Задач пока нет.<br>' +
+    'Например: раз в сутки сохранять копию базы или раз в час удалять временные файлы.</div>' +
+    '<button class="btn primary" onclick="cronDlg(-1)">' + icon('plus', 15) + ' Добавить первую задачу</button></div>') +
+    (d.system_jobs && d.system_jobs.length ?
+      '<div class="card"><div class="card-h"><span class="card-t">Служебные задания</span><span class="card-spacer"></span>' +
+      '<span class="pill gray">созданы панелью и её службами</span></div>' +
+      '<div class="logbox" style="max-height:180px">' + esc(d.system_jobs.join('\n')) + '</div></div>' : '');
+}
+
+function cronToggleJob(i: number, checked: boolean): void {
+  if (cronJobs[i]) { cronJobs[i].enabled = checked; cronSave(); }
+}
+
+function cronDlg(idx: number): void {
+  let j: CronJob = idx >= 0 ? { ...cronJobs[idx] } :
+    { expr: '0 3 * * *', command: '', comment: '', enabled: true };
+  if (cronState && cronState.idx === idx) {
+    j.expr = cronState.expr;
+    j.command = cronState.command;
+    j.comment = cronState.comment;
+    cronState = null;
+  }
+  cronIdx = idx;
+  const presets = CRON_PRESETS.map((p) =>
+    '<button class="btn sm" type="button" data-cron="' + esc(p[0]) + '" onclick="this.closest(\'.modal-b\').querySelector(\'#cr-expr\').value=this.dataset.cron; cronHint()">' +
+    esc(p[1]) + '</button>').join('');
+  modal(idx >= 0 ? 'Изменить задачу' : 'Новая задача',
+    '<div class="field"><label>Когда запускать — выберите интервал</label>' +
+    '<div class="chips" style="margin:0 0 10px">' + presets + '</div>' +
+    '<input type="text" id="cr-expr" class="mono" value="' + esc(j.expr) +
+    '" oninput="cronHint(); cronDlgRemember()" placeholder="0 3 * * *">' +
+    '<div class="faint" id="cr-human" style="font-size:12px;margin-top:5px"></div></div>' +
+    '<div class="field"><label>Команда</label>' +
+    '<div class="row" style="flex-wrap:nowrap">' +
+    '<input type="text" id="cr-cmd" class="mono" value="' + esc(j.command) +
+    '" placeholder="/var/www/mysite.ru/script.php" style="flex:1" oninput="cronDlgRemember()">' +
+    '<button class="btn" type="button" title="Найти файл на сервере" onclick="cronFileDlg()">' +
+    icon('folder', 14) + '</button></div>' +
+    '<div class="row" style="margin-top:8px"><select id="cr-site" style="flex:1" onchange="cronSiteInsert()">' +
+    '<option value="">— вставить путь к сайту —</option></select></div>' +
+    '<div class="faint" style="font-size:11.5px;margin-top:5px">Выберите сайт — его путь подставится в команду, ' +
+    'допишите дальше путь до скрипта, например: <span class="mono">/var/www/mysite.ru/cron/job.php</span></div></div>' +
+    '<div class="field"><label>Описание (для себя)</label>' +
+    '<input type="text" id="cr-cmt" value="' + esc(j.comment || '') +
+    '" placeholder="например, ночной бэкап базы" oninput="cronDlgRemember()"></div>',
+    '<button class="btn primary" onclick="cronDlgSave()">Сохранить</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+  cronHint();
+  api('/api/sites').then((d) => {
+    const sel = document.getElementById('cr-site') as HTMLSelectElement | null;
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— вставить путь к сайту —</option>' +
+      d.sites.map((s: any) => '<option value="' + esc(s.docroot) + '">' + esc(s.domain) + '</option>').join('');
+  }).catch(() => {});
+}
+
+function cronDlgRemember(): void {
+  const g = (id: string) => { const el = document.getElementById(id) as HTMLInputElement | null; return el ? el.value : null; };
+  if (document.getElementById('cr-cmd') && cronIdx != null)
+    cronState = { idx: cronIdx,
+      expr: g('cr-expr') || '', command: g('cr-cmd') || '',
+      comment: g('cr-cmt') || '' };
+}
+
+function cronHint(): void {
+  const el = document.getElementById('cr-human');
+  if (!el) return;
+  const h = cronHuman(($('#cr-expr') as HTMLInputElement).value);
+  el.textContent = h ? 'Это значит: ' + h
+    : 'Формат cron: минуты часы день-месяца месяц день-недели — 5 полей через пробел';
+}
+
+function cronSiteInsert(): void {
+  const sel = document.getElementById('cr-site') as HTMLSelectElement | null;
+  if (!sel) return;
+  if (sel.value) {
+    insertAtCursor('cr-cmd', sel.value);
+    cronDlgRemember();
+  }
+  sel.value = '';
+}
+
+function insertAtCursor(id: string, text: string): void {
+  const inp = document.getElementById(id) as HTMLInputElement | null;
+  if (!inp) return;
+  const s = inp.selectionStart == null ? inp.value.length : inp.selectionStart;
+  const e = inp.selectionEnd == null ? s : inp.selectionEnd;
+  inp.value = inp.value.slice(0, s) + text + inp.value.slice(e);
+  inp.focus();
+  inp.setSelectionRange(s + text.length, s + text.length);
+}
+
+/* помощник выбора файла: браузер по серверу с фильтром */
+function cronFileDlg(): void {
+  cronDlgRemember();
+  fpTarget = 'cr-cmd';
+  const siteSel = document.getElementById('cr-site') as HTMLSelectElement | null;
+  const sites = siteSel ? Array.from(siteSel.options).filter((o) => o.value) : [];
+  const start = sites.length === 1 ? sites[0].value : '/var/www';
+  fp = { path: start };
+  modal('Найти файл',
+    '<div class="bread" id="fp-bread"></div>' +
+    '<div class="row" style="margin:8px 0">' +
+    '<input type="text" id="fp-filter" placeholder="фильтр: часть имени файла…" style="flex:1" oninput="fpRender()">' +
+    '<button class="btn" type="button" title="Вставить в команду путь к текущей папке" ' +
+    'onclick="fpPickCurrent()">Выбрать папку</button></div>' +
+    '<div id="fp-list" style="max-height:44vh;overflow:auto"></div>',
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+  fpGo(start);
+}
+
+async function fpGo(p: string): Promise<void> {
+  const box = document.getElementById('fp-list');
+  if (!box) return;
+  box.innerHTML = '<div class="empty">Загрузка…</div>';
+  fp.path = p;
+  let d: any;
+  try { d = await api('/api/files?path=' + encodeURIComponent(p)); }
+  catch (e: any) { box.innerHTML = '<div class="empty">' + esc(e.message || 'папка недоступна') + '</div>'; return; }
+  fpData = d;
+  fpRender();
+}
+
+function fpRender(): void {
+  const d = fpData, box = document.getElementById('fp-list');
+  if (!d || !box) return;
+  const fEl = document.getElementById('fp-filter') as HTMLInputElement | null;
+  const f = (fEl ? fEl.value : '').toLowerCase();
+  const items = d.items.filter((x: any) => x.name.toLowerCase().includes(f));
+  const parts: string[] = d.path.split('/').filter(Boolean);
+  const crumbs: [string, string][] = [];
+  let acc = '';
+  parts.forEach((p) => { acc += '/' + p; crumbs.push([p, acc]); });
+  fpCrumbs = crumbs;
+  (document.getElementById('fp-bread') as HTMLElement)!.innerHTML =
+    '<button onclick="fpGo(\'/\')">корень</button>' +
+    crumbs.map((c, i) =>
+      '<span class="sep">/</span><button onclick="fpIdxCrumb(' + i + ')">' + esc(c[0]) + '</button>'
+    ).join('');
+  fpItems = items.map((it: any) => (d.path === '/' ? '' : d.path) + '/' + it.name);
+  box.innerHTML = items.length ?
+    '<div class="twrap"><table><tbody>' +
+    items.map((it: any, i: number) => {
+      if (it.type === 'dir')
+        return '<tr><td style="cursor:pointer" onclick="fpIdx(' + i + ')">' +
+          icon('folder', 15) + ' <b>' + esc(it.name) + '</b></td><td style="width:96px"></td></tr>';
+      return '<tr><td>' + icon('file', 15) + ' ' + esc(it.name) + '</td>' +
+        '<td style="width:96px"><button class="btn sm" onclick="fpPickIdx(' + i + ')">Выбрать</button></td></tr>';
+    }).join('') + '</tbody></table></div>'
+    : '<div class="empty">Папка пуста или фильтр ничего не нашёл</div>';
+}
+
+function fpIdxCrumb(i: number): void { fpGo(fpCrumbs[i][1]); }
+function fpIdx(i: number): void { fpGo(fpItems[i]); }
+function fpPickIdx(i: number): void { fpPick(fpItems[i]); }
+function fpPickCurrent(): void { fpPick(fp.path); }
+
+function fpPick(p: string): void {
+  if (cronState) {
+    const cmd = cronState.command || '';
+    if (cmd && !cmd.endsWith(' ') && !cmd.endsWith(p)) p = ' ' + p;
+    cronState.command = cmd.endsWith(p) ? cmd : cmd + p;
+    const idx = cronState.idx;
+    closeModal();
+    cronDlg(idx);
+    toast('Путь вставлен — допишите команду');
+    return;
+  }
+  insertAtCursor(fpTarget || 'cr-cmd', p);
+  closeModal();
+  toast('Путь вставлен — допишите команду');
+}
+
+async function cronDlgSave(): Promise<void> {
+  const expr = ($('#cr-expr') as HTMLInputElement).value.trim(), cmd = ($('#cr-cmd') as HTMLInputElement).value.trim();
+  if (expr.split(/\s+/).length !== 5) {
+    toast('В расписании должно быть 5 полей через пробел, например: 0 3 * * *', 'warn');
+    return;
+  }
+  if (!cmd) { toast('Укажите команду — что именно запускать', 'warn'); return; }
+  const j: CronJob = { expr, command: cmd, comment: ($('#cr-cmt') as HTMLInputElement).value.trim(), enabled: true };
+  if (cronIdx! >= 0) cronJobs[cronIdx as number] = j;
+  else cronJobs.push(j);
+  await cronSave(); closeModal();
+  go('cron');
+}
+
+function cronDel(i: number): void {
+  const j = cronJobs[i] || ({} as CronJob);
+  const name = j.comment || (j.command || '').slice(0, 40);
+  confirmDlg('Удалить задачу?',
+    'Задача «' + esc(name) + '» больше не будет запускаться по расписанию.',
+    async () => {
+      cronJobs.splice(i, 1);
+      await cronSave();
+      go('cron');
+      toast('Задача удалена');
+    });
+}
+
+function cronLogDlg(i: number): void {
+  const j = cronJobs[i] || ({} as CronJob);
+  const title = j.comment || (j.command || '').slice(0, 40);
+  modal('Журнал: ' + esc(title),
+    '<div class="empty">Загрузка…</div>',
+    '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+  api('/api/cron/log?command=' + encodeURIComponent(j.command || ''))
+    .then((d) => {
+      const box = document.querySelector('#modal .modal-b');
+      if (!box) return;
+      box.innerHTML = d.lines && d.lines.length
+        ? '<div class="logbox" style="max-height:56vh">' +
+          esc(d.lines.join('\n')) + '</div>'
+        : '<div class="empty">Задача ещё не запускалась — журнал пуст.<br>' +
+          'Нажмите «Запустить сейчас», чтобы проверить её и увидеть вывод.</div>';
+    })
+    .catch((e) => toastErr(e));
+}
+
+async function cronRun(i: number): Promise<void> {
+  const j = cronJobs[i] || ({} as CronJob);
+  modal('Запуск: ' + esc((j.comment || j.command || '').slice(0, 60)),
+    '<div class="empty" id="cron-run-out">Выполняется…</div>',
+    '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+  try {
+    const r = await api('/api/cron/run', { method: 'POST', body: { index: i } });
+    const box = document.getElementById('cron-run-out');
+    if (!box) return;
+    box.className = r.code === 0 ? 'notice ok' : 'notice err';
+    box.innerHTML = (r.code === 0
+      ? '<b>Команда выполнена успешно.</b>'
+      : '<b>Команда завершилась с кодом ' + r.code + '.</b>') +
+      (r.output ? '<div class="logbox" style="margin-top:10px;max-height:300px">' + esc(r.output) + '</div>'
+                : '<div class="faint" style="margin-top:6px">Вывода нет — команда отработала молча.</div>');
+  } catch (e) { toastErr(e); }
+}
+
+async function cronSave(): Promise<void> {
+  try {
+    const r = await api('/api/cron/save', { method: 'POST', body: {
+      jobs: cronJobs,
+      auto: $('#cron-auto') ? ($('#cron-auto') as HTMLInputElement).checked : undefined,
+      auto_cron: $('#cron-auto-expr') ? ($('#cron-auto-expr') as HTMLInputElement).value : undefined,
+      ssl_auto: $('#cron-ssl') ? ($('#cron-ssl') as HTMLInputElement).checked : undefined,
+      ssl_auto_cron: $('#cron-ssl-expr') ? ($('#cron-ssl-expr') as HTMLInputElement).value : undefined } });
+    toast(esc(r.message));
+  } catch (e) { toastErr(e); }
+}
+
+registerPage('cron', pgCron);
+
+export { pgCron, cronToggleJob, cronDlg, cronDlgRemember, cronHint, cronSiteInsert,
+  cronFileDlg, fpGo, fpRender, fpIdxCrumb, fpIdx, fpPickIdx, fpPick, fpPickCurrent,
+  cronDlgSave, cronDel, cronLogDlg, cronRun, cronSave, insertAtCursor };

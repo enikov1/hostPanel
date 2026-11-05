@@ -1,0 +1,178 @@
+/* ============ Страница: Пакеты и обновления + PHP-модули ============ */
+import { api } from '../api/client.js';
+import { icon } from '../core/icons.js';
+import { esc, fmtDate, $ } from '../core/format.js';
+import { page } from '../core/state.js';
+import { registerPage } from '../core/router.js';
+import { toast, toastErr } from '../components/toast.js';
+import { modal, closeModal, confirmDlg } from '../components/modal.js';
+let phpVersionsCache = {};
+let phpModNames = {};
+export function getPhpVersionsCache() { return phpVersionsCache; }
+export function getPhpModNames() { return phpModNames; }
+async function pgPackages(c) {
+    c.innerHTML = '<div class="empty">Загрузка…</div>';
+    let d;
+    try {
+        d = await api('/api/packages');
+    }
+    catch (e) {
+        c.innerHTML = '';
+        toastErr(e);
+        return;
+    }
+    // версии PHP грузим ДО отрисовки — иначе селект «Установки PHP-модулей»
+    // рисуется пустым и заполняется только при удачном догружении
+    try {
+        const php = await api('/api/php');
+        phpVersionsCache = php.versions;
+    }
+    catch (e) {
+        if (!Object.keys(phpVersionsCache).length)
+            phpVersionsCache = {};
+    }
+    const phpOpts = Object.keys(phpVersionsCache || {}).sort().reverse()
+        .map((v) => '<option value="' + esc(v) + '">PHP ' + esc(v) + '</option>').join('');
+    const kinds = {};
+    (d.upgradable || []).forEach((u) => { kinds[u.kind] = kinds[u.kind] || []; kinds[u.kind].push(u); });
+    c.innerHTML =
+        '<div class="toolbar"><button class="btn" onclick="aptUpdate()">' + icon('refresh', 15) + ' Обновить индексы apt</button>' +
+            '<span class="spacer"></span><span class="muted" style="font-size:13px">Доступно обновлений: ' + (d.upgradable || []).length + '</span></div>' +
+            '<div id="pkg-task"></div>' +
+            (d.apt_updated ? '<div class="notice info">Индексы apt обновлялись: ' + esc(fmtDate(d.apt_updated)) + '</div>' : '') +
+            Object.keys(kinds).map((kind) => '<div class="card" style="padding:6px 10px;margin-bottom:12px"><div class="card-h" style="padding:10px 6px 0">' +
+                '<span class="card-t">' + esc(kind) + '</span><span class="card-spacer"></span>' +
+                '<button class="btn sm primary" onclick="pkgUpgradeKind(\'' + esc(kind) + '\')">обновить все ' + esc(kind) + '</button></div>' +
+                '<div class="twrap"><table><thead><tr><th><input type="checkbox" onclick="pkgToggleKind(\'' + esc(kind) + '\', this.checked)" checked></th>' +
+                '<th>Пакет</th><th>Текущая</th><th>Новая</th></tr></thead><tbody>' +
+                kinds[kind].map((u) => '<tr class="pkg-row" data-kind="' + esc(kind) + '"><td><input type="checkbox" class="pkg-chk" value="' + esc(u.pkg) + '" checked></td>' +
+                    '<td class="mono">' + esc(u.pkg) + '</td><td class="mono muted">' + esc(u.cur || '—') + '</td>' +
+                    '<td class="mono">' + esc(u.new || '—') + '</td></tr>').join('') +
+                '</tbody></table></div></div>').join('') +
+            ((d.upgradable || []).length ? '' : '<div class="empty">Всё актуально — обновлений нет.</div>') +
+            '<div class="card"><div class="card-h"><span class="card-t">Установка PHP-модулей</span></div>' +
+            '<div class="row"><div style="flex:1"><select id="pkg-php-ver">' +
+            (phpOpts || '<option value="">PHP не обнаружен</option>') + '</select></div>' +
+            '<button class="btn" onclick="openPhpModules()">Выбрать модули…</button></div>' +
+            '<div class="muted" style="font-size:12.5px;margin-top:8px">Модули ставятся из репозитория apt (phpX.Y-имя) и сразу подключаются к FPM.</div></div>';
+    pkgTaskPoll();
+}
+function pkgToggleKind(kind, checked) {
+    document.querySelectorAll('.pkg-row[data-kind="' + kind + '"] .pkg-chk')
+        .forEach((ch) => { ch.checked = checked; });
+}
+function pkgUpgradeKind(kind) {
+    const names = Array.from(document.querySelectorAll('.pkg-row[data-kind="' + kind + '"] .pkg-chk:checked')).map((ch) => ch.value);
+    if (!names.length) {
+        toast('ничего не выбрано', 'warn');
+        return;
+    }
+    confirmDlg('Обновить пакеты', 'Обновить <b>' + names.length + '</b> пакет(ов) ' + esc(kind) + '?', async () => {
+        try {
+            const r = await api('/api/packages/upgrade', { method: 'POST', body: { names } });
+            toast(esc(r.message));
+            pkgTaskPoll();
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    });
+}
+async function aptUpdate() {
+    try {
+        const r = await api('/api/packages/update_index', { method: 'POST', body: {} });
+        toast(esc(r.message));
+        pkgTaskPoll();
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+/** Опрос фоновой задачи пакетного менеджера (используется и разделом ПО). */
+async function pkgTaskPoll() {
+    try {
+        const d = await api('/api/packages/task');
+        const el = document.getElementById('pkg-task');
+        if (!el)
+            return;
+        if (d.running) {
+            el.innerHTML = '<div class="notice info"><b>Выполняется:</b> ' + esc(d.kind) +
+                ' <span class="dot pulse"></span><div class="logbox" style="margin-top:8px;max-height:150px">' +
+                esc((d.log || []).join('\n')) + '</div></div>';
+            setTimeout(pkgTaskPoll, 2000);
+        }
+        else {
+            el.innerHTML = taskHistoryHtml(d);
+        }
+    }
+    catch (e) { }
+}
+export function taskHistoryHtml(d) {
+    const h = d.history || [];
+    if (!h.length)
+        return '';
+    const rows = h.slice(0, 12).map((x) => '<div class="row" style="align-items:center;gap:8px;padding:3px 0">' +
+        '<span class="pill ' + (x.ok ? 'ok' : 'err') + '">' + (x.ok ? 'ок' : 'ошибка') + '</span>' +
+        '<span class="faint" style="width:110px">' + esc((x.finished || '').slice(0, 16)) + '</span>' +
+        '<span style="flex:1">' + esc(x.kind) + (x.error ? ' — ' + esc(x.error) : '') + '</span></div>').join('');
+    return '<div class="card" style="margin-top:12px"><div class="card-h">' +
+        '<span class="card-t">Последние операции</span><span class="card-spacer"></span>' +
+        '<span class="pill gray">' + h.length + '</span></div>' + rows + '</div>';
+}
+async function openPhpModules() {
+    // из контекста модала сайта или со страницы пакетов
+    const version = document.getElementById('pkg-php-ver') ?
+        document.getElementById('pkg-php-ver').value :
+        (($('#st-php')) ? $('#st-php').value : '');
+    if (!version) {
+        toast('выберите версию PHP', 'warn');
+        return;
+    }
+    let d;
+    try {
+        d = await api('/api/php/modules?version=' + encodeURIComponent(version));
+    }
+    catch (e) {
+        toastErr(e);
+        return;
+    }
+    const installed = new Set(d.installed || []);
+    const names = phpModNames || {};
+    modal('PHP-модули для ' + esc(version), '<div class="notice info">Установленные модули отмечены галочкой и недоступны. Новые ставятся через apt в фоне.</div>' +
+        '<div style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:10px">' +
+        (d.available || []).map((m) => '<label class="check" style="margin:4px 0' + (installed.has(m) ? ';opacity:.5' : '') + '">' +
+            '<input type="checkbox" class="php-mod" value="' + esc(m) + '"' + (installed.has(m) ? ' disabled' : '') + '> ' +
+            esc(m) + (names[m] ? ' <span class="faint">— ' + esc(names[m]) + '</span>' : '') +
+            (installed.has(m) ? ' <span class="pill ok" style="margin-left:auto">установлен</span>' : '') + '</label>').join('') +
+        '</div>', '<button class="btn primary" onclick="installPhpModules(\'' + esc(version) + '\')">' + icon('down', 15) + ' Установить выбранные</button>' +
+        '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+    // подтягиваем описания модулей
+    try {
+        const php = await api('/api/php');
+        phpModNames = php.module_names || {};
+    }
+    catch (e) { }
+}
+async function installPhpModules(version) {
+    const mods = Array.from(document.querySelectorAll('.php-mod:checked')).map((c) => c.value);
+    if (!mods.length) {
+        toast('ничего не выбрано', 'warn');
+        return;
+    }
+    confirmDlg('Установить модули', 'Установить <b>' + mods.length + '</b> PHP-модуль(ей) для PHP ' + esc(version) + ' через apt?', async () => {
+        closeModal();
+        for (const m of mods) {
+            try {
+                await api('/api/php/install_module', { method: 'POST', body: { version, module: m } });
+            }
+            catch (e) {
+                toastErr(e);
+            }
+        }
+        toast('установка запущена (' + mods.length + ' модулей)');
+        if (page === 'packages')
+            pkgTaskPoll();
+    });
+}
+registerPage('packages', pgPackages);
+export { pgPackages, pkgToggleKind, pkgUpgradeKind, aptUpdate, pkgTaskPoll, openPhpModules, installPhpModules };

@@ -1,0 +1,76 @@
+/* ============ Страница: Резервные копии ============ */
+import { api } from '../api/client.js';
+import { icon } from '../core/icons.js';
+import { esc, fmtSize, fmtDate, $ } from '../core/format.js';
+import { registerPage, go } from '../core/router.js';
+import { toast, toastErr } from '../components/toast.js';
+import { modal, closeModal, confirmDlg } from '../components/modal.js';
+async function pgBackups(c) {
+    c.innerHTML = '<div class="empty">Загрузка…</div>';
+    let d;
+    try {
+        d = await api('/api/backups');
+    }
+    catch (e) {
+        c.innerHTML = '';
+        toastErr(e);
+        return;
+    }
+    c.innerHTML =
+        '<div class="toolbar"><button class="btn primary" onclick="createBackupDlg()">' + icon('plus', 15) +
+            'Создать резервную копию</button><span class="spacer"></span>' +
+            '<span class="muted" style="font-size:13px">Копий: ' + d.backups.length + '</span></div>' +
+            '<div class="card" style="padding:6px 10px"><div class="twrap"><table>' +
+            '<thead><tr><th>Дата</th><th>Состав</th><th>Размер</th><th></th></tr></thead><tbody>' +
+            (d.backups.map((b) => '<tr><td class="mono">' + esc(fmtDate(b.created)) + '</td>' +
+                '<td>' + esc((b.sites || []).join(', ') || '—') + (b.with_db ? ' + БД' : '') + '</td>' +
+                '<td>' + fmtSize(b.size) + '</td>' +
+                '<td><div class="actions-cell">' +
+                '<a class="btn sm" href="/api/backup/download?id=' + encodeURIComponent(b.id) + '">' + icon('down', 13) + '</a>' +
+                '<button class="btn sm" onclick="restoreBackup(\'' + esc(b.id) + '\', \'' + esc(fmtDate(b.created)) + '\')">' + icon('refresh', 13) + ' Восстановить</button>' +
+                '<button class="btn sm icon danger" onclick="delBackup(\'' + esc(b.id) + '\')">' + icon('trash', 13) + '</button>' +
+                '</div></td></tr>').join('') || '') +
+            '</tbody></table>' + (d.backups.length ? '' : '<div class="empty">Резервных копий пока нет — создайте первую.</div>') + '</div></div>';
+}
+function createBackupDlg() {
+    modal('Резервное копирование', '<label class="check"><input type="checkbox" id="bk-db" checked> Включить дампы баз данных</label>' +
+        '<div class="notice info">В архив войдут файлы всех сайтов, дампы MySQL и настройки панели. Хранятся последние копии (см. Настройки).</div>', '<button class="btn primary" onclick="createBackup()">' + icon('archive', 15) + ' Создать</button>' +
+        '<button class="btn" onclick="closeModal()">Отмена</button>');
+}
+async function createBackup() {
+    try {
+        toast('Создаётся резервная копия…');
+        const r = await api('/api/backups/create', { method: 'POST', body: { with_db: $('#bk-db').checked } });
+        closeModal();
+        toast(esc(r.message) + ' (' + fmtSize(r.backup.size) + ')');
+        go('backups');
+    }
+    catch (e) {
+        toastErr(e);
+    }
+}
+function restoreBackup(id, date) {
+    confirmDlg('Восстановление', 'Файлы сайтов будут заменены содержимым копии от <b>' + esc(date) + '</b>. Продолжить?', async () => {
+        try {
+            const r = await api('/api/backups/restore', { method: 'POST', body: { id } });
+            toast(esc(r.message));
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    });
+}
+function delBackup(id) {
+    confirmDlg('Удалить копию', 'Резервная копия будет удалена навсегда.', async () => {
+        try {
+            const r = await api('/api/backups/delete', { method: 'POST', body: { id } });
+            toast(esc(r.message));
+            go('backups');
+        }
+        catch (e) {
+            toastErr(e);
+        }
+    });
+}
+registerPage('backups', pgBackups);
+export { pgBackups, createBackupDlg, createBackup, restoreBackup, delBackup };

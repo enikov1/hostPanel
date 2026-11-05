@@ -1,0 +1,74 @@
+export const $ = (sel) => document.querySelector(sel);
+/* ============ Форматирование значений и мелкие DOM-помощники ============ */
+export function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+}
+export function fmtSize(n) {
+    if (n == null || isNaN(Number(n)))
+        return '—';
+    let v = Number(n);
+    if (v < 1024)
+        return Math.round(v) + ' Б';
+    const u = ['КБ', 'МБ', 'ГБ', 'ТБ'];
+    let i = -1;
+    do {
+        v /= 1024;
+        i++;
+    } while (v >= 1024 && i < u.length - 1);
+    return v.toFixed(1).replace('.', ',') + ' ' + u[i];
+}
+export function fmtDate(s) {
+    return s ? String(s).replace('T', ' ').slice(0, 16) : '—';
+}
+export function humanUptime(s) {
+    const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), mm = Math.floor(s % 3600 / 60);
+    return (d ? d + ' дн. ' : '') + (h ? h + ' ч. ' : '') + mm + ' мин.';
+}
+export function humanRel(sec) {
+    if (sec >= 86400)
+        return Math.floor(sec / 86400) + ' дн.';
+    if (sec >= 3600)
+        return Math.floor(sec / 3600) + ' ч.';
+    if (sec >= 60)
+        return Math.floor(sec / 60) + ' мин.';
+    return Math.floor(sec) + ' сек.';
+}
+/** Человекочитаемая расшифровка cron-выражения («каждый день в 03:00»). */
+export function cronHuman(expr) {
+    const p = (expr || '').trim().split(/\s+/);
+    if (p.length !== 5)
+        return '';
+    const DOW = ['воскресеньям', 'понедельникам', 'вторникам', 'средам',
+        'четвергам', 'пятницам', 'субботам'];
+    const MON = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля',
+        'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+    const pad = (n) => String(n).padStart(2, '0');
+    const [m, h, dom, mon, dow] = p;
+    const ev = (f) => f === '*';
+    const step = (f) => { const x = f.match(/^\*\/(\d+)$/); return x ? +x[1] : 0; };
+    const one = (f) => { const x = f.match(/^(\d+)$/); return x ? +x[1] : -1; };
+    if (ev(m) && ev(h) && ev(dom) && ev(mon) && ev(dow))
+        return 'каждую минуту';
+    if (step(m) && ev(h))
+        return 'каждые ' + step(m) + ' мин';
+    if (one(m) >= 0 && ev(h) && ev(dom) && ev(dow))
+        return 'ежечасно на ' + one(m) + '-й минуте';
+    if (ev(m) && step(h))
+        return 'каждые ' + step(h) + ' ч';
+    if (one(m) >= 0 && step(h))
+        return 'каждые ' + step(h) + ' ч на ' + one(m) + '-й минуте';
+    if (one(m) >= 0 && one(h) >= 0) {
+        const tm = pad(one(h)) + ':' + pad(one(m));
+        if (ev(dom) && ev(mon) && ev(dow))
+            return 'каждый день в ' + tm;
+        if (ev(dom) && ev(mon) && one(dow) >= 0 && one(dow) <= 6)
+            return 'по ' + DOW[one(dow)] + ' в ' + tm;
+        if (one(dom) > 0 && ev(mon) && ev(dow))
+            return one(dom) + '-го числа каждого месяца в ' + tm;
+        if (one(dom) > 0 && one(mon) >= 1 && one(mon) <= 12 && ev(dow))
+            return one(dom) + ' ' + MON[one(mon) - 1] + ' в ' + tm;
+    }
+    return '';
+}

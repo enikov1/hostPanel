@@ -1,0 +1,71 @@
+/* ============ Страница: Веб-терминал (замена SSH-клиенту) ============ */
+import { api } from '../api/client.js';
+import { $ } from '../core/format.js';
+import { registerPage } from '../core/router.js';
+let termHist = [];
+let termHistIdx = -1;
+async function pgTerm(c) {
+    termHist = [];
+    termHistIdx = -1;
+    c.innerHTML =
+        '<div class="card" style="padding:10px">' +
+            '<div class="row"><div class="field" style="flex:1"><label>Рабочая папка</label>' +
+            '<input type="text" id="term-cwd" class="mono" value="/root"></div></div>' +
+            '<div class="logbox" id="term-out" style="height:440px;overflow:auto;white-space:pre-wrap;background:var(--hover)">root@server — команды выполняются на сервере (замена SSH)\n</div>' +
+            '<div class="row" style="margin-top:10px">' +
+            '<input type="text" id="term-cmd" class="mono" placeholder="команда, например: df -h" autocomplete="off" style="flex:1">' +
+            '<button class="btn primary" onclick="termRun()">Выполнить</button>' +
+            '<button class="btn" onclick="document.getElementById(\'term-out\').textContent=\'\'">Очистить</button></div>' +
+            '<div class="faint" style="font-size:11.5px;margin-top:6px">↑/↓ — история · Enter — выполнить · cd меняет рабочую папку · интерактивные программы (top, vim) не поддерживаются</div></div>';
+    const cmd = $('#term-cmd');
+    cmd.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter')
+            termRun();
+        else if (e.key === 'ArrowUp') {
+            if (termHistIdx < termHist.length - 1) {
+                termHistIdx++;
+                cmd.value = termHist[termHist.length - 1 - termHistIdx];
+            }
+            e.preventDefault();
+        }
+        else if (e.key === 'ArrowDown') {
+            if (termHistIdx > 0) {
+                termHistIdx--;
+                cmd.value = termHist[termHist.length - 1 - termHistIdx];
+            }
+            else {
+                termHistIdx = -1;
+                cmd.value = '';
+            }
+            e.preventDefault();
+        }
+    });
+    cmd.focus();
+}
+async function termRun() {
+    const cmd = $('#term-cmd').value.trim();
+    if (!cmd)
+        return;
+    const out = $('#term-out');
+    const cwd = $('#term-cwd').value.trim() || '/root';
+    out.textContent += 'root:~$ ' + cmd + '\n';
+    termHist.push(cmd);
+    if (termHist.length > 100)
+        termHist.shift();
+    termHistIdx = -1;
+    $('#term-cmd').value = '';
+    out.scrollTop = out.scrollHeight;
+    try {
+        const r = await api('/api/exec', { method: 'POST', body: { cmd, cwd } });
+        out.textContent += (r.output && r.output.trim()) ? r.output : '(нет вывода)';
+        if (r.code !== 0)
+            out.textContent += '\n[код завершения ' + r.code + ']';
+        out.textContent += '\n';
+    }
+    catch (e) {
+        out.textContent += 'ОШИБКА: ' + e.message + '\n';
+    }
+    out.scrollTop = out.scrollHeight;
+}
+registerPage('term', pgTerm);
+export { pgTerm, termRun };

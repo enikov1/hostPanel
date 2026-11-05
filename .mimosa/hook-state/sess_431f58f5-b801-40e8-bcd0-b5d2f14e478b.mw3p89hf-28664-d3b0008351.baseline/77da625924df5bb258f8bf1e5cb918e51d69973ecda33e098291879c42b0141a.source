@@ -1,0 +1,191 @@
+'use strict';
+/* ============ Страницы: Обзор, Живучесть, Логи сервера ============ */
+
+/* чек-лист «Первые шаги»: ведёт пользователя от нуля до готового сайта */
+function quickStartCard(d, m){
+  const phpOk = (d.services||[]).some(s => s.exists && /^php[\d.]+-fpm$/.test(s.name));
+  const mailOk = (d.services||[]).some(s => s.exists && (s.name === 'postfix' || s.name === 'dovecot'));
+  const steps = [
+    {done: !ME.must_change_password, t:'Сменить стандартный пароль панели',
+     d:'Вход admin/admin небезопасен', go:'settings'},
+    {done: phpOk, t:'Установить PHP (или Node.js) для сайта',
+     d:'Раздел «Установка ПО» — одна кнопка', go:'software'},
+    {done: d.sites_count > 0, t:'Создать первый сайт',
+     d:'Мастер за минуту соберёт сайт и базу', go:'sites'},
+    {done: d.dbs_count > 0, t:'Создать базу данных',
+     d:'Нужна для WordPress, магазинов и т.п.', go:'dbs'},
+    {done: mailOk, t:'Настроить почту на своём домене',
+     d:'Свой ящик вида info@ваш-домен.ru', go:'mail'},
+    {done: d.backups_count > 0, t:'Сделать первую резервную копию',
+     d:'Страховка от потери данных', go:'backups'},
+  ];
+  const left = steps.filter(s => !s.done).length;
+  if (!left) return '<div class="notice ok" style="margin-bottom:16px">' +
+    icon('check',15) + ' Все первые шаги выполнены — сервер полностью готов к работе. Ниже — текущее состояние.</div>';
+  const items = steps.map(s =>
+    '<div class="qs-item">' +
+    '<span class="qs-ico ' + (s.done?'done':'todo') + '">' + icon(s.done?'check':'clock', 14) + '</span>' +
+    '<span class="qs-t' + (s.done ? '' : '') + '"' + (s.done ? ' style="text-decoration:line-through;color:var(--faint)"' : '') + '>' + s.t +
+    (s.done ? '' : '<small>' + s.d + '</small>') + '</span>' +
+    (s.done ? '' : '<button class="btn sm" onclick="go(\'' + s.go + '\');' +
+      (s.go === 'sites' ? 'setTimeout(wizardSite, 250);' : '') +
+      (s.go === 'dbs' ? 'setTimeout(dbCreateDlg, 250);' : '') +
+      '">Перейти →</button>') +
+    '</div>').join('');
+  return '<div class="card" style="margin-bottom:16px">' +
+    '<div class="card-h"><span class="card-t">Первые шаги</span><span class="card-spacer"></span>' +
+    '<span class="pill info">осталось шагов: ' + left + '</span></div>' + items + '</div>';
+}
+
+async function pgOverview(c){
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let d;
+  try { d = await api('/api/overview'); } catch(e){ c.innerHTML=''; toastErr(e); return; }
+  const m = d.metrics;
+  const hist = m.hist && m.hist.length ? m.hist : [0,0];
+  const load = d.sites_load || {cpu:0, mem_mb:0, php_workers:0};
+  c.innerHTML =
+    quickStartCard(d, m) +
+    '<div class="grid g4" style="margin-bottom:16px">' +
+      statCard('cpu','c1', m.cpu + '%','Процессор (' + m.cores + ' ядер)', m.cpu, m.cpu>85?'err':m.cpu>60?'warn':'ok') +
+      statCard('server','c2', fmtSize(m.ram.used) + ' / ' + fmtSize(m.ram.total),'Оперативная память', m.ram.percent, m.ram.percent>90?'err':'ok') +
+      statCard('archive','c3', m.disk.percent + '%','Диск занят (' + fmtSize(m.disk.used) + ' из ' + fmtSize(m.disk.total) + ')', m.disk.percent, m.disk.percent>90?'err':m.disk.percent>75?'warn':'ok') +
+      statCard('activity','c4', (m.net.in_mbit) + ' / ' + (m.net.out_mbit) + ' Мбит/с','Сеть (вход / выход)', null) +
+    '</div>' +
+    '<div class="split">' +
+      '<div><div class="card"><div class="card-h"><span class="card-t">Нагрузка процессора</span>' +
+        '<span class="card-spacer"></span><span class="pill info"><span class="dot pulse"></span>в реальном времени</span></div>' +
+        '<canvas id="ov-cpu" class="chart"></canvas>' +
+        '<div class="muted" style="font-size:12.5px;margin-top:8px">Аптайм: <b>' + humanUptime(m.uptime_sec) +
+        '</b> · Load average: <b>' + m.load.join(' / ') + '</b></div></div>' +
+      '<div class="card"><div class="card-h"><span class="card-t">Нагрузка сайтов на систему</span></div>' +
+        '<div class="kv"><b>PHP-воркеры (все сайты)</b><span>' + load.php_workers + '</span>' +
+        '<b>CPU всех сайтов</b><span>' + load.cpu + '%</span>' +
+        '<b>Память всех сайтов</b><span>' + fmtSize(load.mem_mb * 1024 * 1024) + '</span></div>' +
+        '<div class="row" style="margin-top:12px">' +
+        '<button class="btn primary" onclick="go(\'sites\'); setTimeout(wizardSite, 250)">' + icon('plus',15) + 'Создать сайт</button>' +
+        '<button class="btn" onclick="createBackupDlg()">' + icon('archive',15) + 'Создать бэкап</button>' +
+        '<button class="btn" onclick="go(\'packages\')">' + icon('pkg',15) + 'Обновления</button>' +
+        '</div></div></div>' +
+      '<div><div class="card"><div class="card-h"><span class="card-t">Сайты</span><span class="card-spacer"></span>' +
+        '<span class="pill gray">' + d.sites_enabled + ' из ' + d.sites_count + ' активны</span></div>' +
+        (d.sites_maintenance ? '<div class="notice warn" style="margin-bottom:8px">' + d.sites_maintenance + ' сайт(ов) в режиме обслуживания</div>' : '') +
+        '<div class="kv"><b>Базы данных</b><span>' + d.dbs_count + '</span>' +
+        '<b>Резервные копии</b><span>' + d.backups_count + '</span></div></div>' +
+      '<div class="card"><div class="card-h"><span class="card-t">Службы</span><span class="card-spacer"></span>' +
+        '<button class="btn sm" onclick="go(\'services\')">все →</button></div><div id="ov-svc"></div></div>' +
+      '<div class="card"><div class="card-h"><span class="card-t">События</span><span class="card-spacer"></span>' +
+        '<button class="btn sm" onclick="clearNotices()">очистить</button></div><div id="ov-notices"></div></div>' +
+    '</div></div>';
+  drawLine($('#ov-cpu'), [{data: hist.length?hist:[0], color: cssVar('--primary'), fill:true}], {max:100, labels: ['60 с назад', 'сейчас']});
+  const svc = (d.services||[]).filter(s => s.exists).slice(0,7);
+  $('#ov-svc').innerHTML = svc.map(s =>
+    '<div class="row" style="justify-content:space-between;padding:5px 0">' +
+    '<span class="mono">' + esc(s.name) + '</span>' +
+    '<span class="pill ' + (s.state==='active'?'ok':s.state==='inactive'?'gray':'err') + '">' +
+    (s.state==='active'?'работает':'остановлена') + '</span></div>').join('') || '<div class="empty">нет данных</div>';
+  const lv = {info:'info', warn:'warn', error:'err'};
+  $('#ov-notices').innerHTML = (d.notifications||[]).slice(0,6).map(n =>
+    '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">' +
+    esc(n.text) + '<div class="faint" style="font-size:11.5px">' + esc(fmtDate(n.ts)) + '</div></div>').join('')
+    || '<div class="empty">событий нет</div>';
+}
+async function clearNotices(){
+  try { await api('/api/notifications/read', {method:'POST', body:{}}); go(PAGE); } catch(e){ toastErr(e); }
+}
+
+/* ---------- страница: Живучесть ---------- */
+async function pgHealth(c){
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let sites;
+  try { sites = (await api('/api/sites')).sites; } catch(e){ c.innerHTML=''; toastErr(e); return; }
+  const rows = await Promise.all(sites.map(async s => {
+    let h = null;
+    try { h = (await api('/api/site/' + s.id + '/health')).report; } catch(e){}
+    return {s, h};
+  }));
+  c.innerHTML = '<div class="card" style="padding:6px 10px"><div class="twrap"><table>' +
+    '<thead><tr><th>Сайт</th><th>Доступность 24 ч</th><th>7 дней</th><th>Ответ</th><th>Инциденты</th><th>Проверки (12 ч)</th></tr></thead><tbody>' +
+    rows.map(r => {
+      const h = r.h || {};
+      const u = h.uptime_24h;
+      const pill = u==null ? '<span class="pill gray">нет данных</span>' :
+        u >= 99.5 ? '<span class="pill ok">' + u + '%</span>' :
+        u >= 97 ? '<span class="pill warn">' + u + '%</span>' :
+        '<span class="pill err">' + u + '%</span>';
+      const last = h.last;
+      const resp = last ? (last.ok ? '<span class="pill ok">' + last.ms + ' мс</span>' :
+        '<span class="pill err">HTTP ' + (last.code||'—') + '</span>') : '—';
+      const ext = last && last.ext ? (last.ext.ok ?
+        '<span class="pill ok" title="Проверка через публичный IP сервера">внешн. ок</span>' :
+        '<span class="pill err" title="Через публичный IP сайт недоступен: проверьте файрвол/порты">внешн. fail</span>') : '';
+      const inc = (h.incidents||[]);
+      const incTxt = inc.length ? '<span class="pill err">' + inc.length + '</span>' +
+        '<div class="faint" style="font-size:11.5px">последний: ' + esc(fmtDate(inc[0].start)) + '</div>' : '<span class="pill ok">0</span>';
+      const chart = '<canvas class="spark" id="hc-' + r.s.id + '"></canvas>';
+      return '<tr><td><b>' + esc(r.s.domain) + '</b>' +
+        (r.s.enabled ? '' : ' <span class="pill warn">отключён</span>') +
+        (r.s.maintenance ? ' <span class="pill warn">обслуживание</span>' : '') + '</td>' +
+        '<td>' + pill + '</td><td>' + (h.uptime_7d != null ? h.uptime_7d + '%' : '—') + '</td>' +
+        '<td>' + resp + (ext ? ' ' + ext : '') + '</td><td>' + incTxt + '</td><td style="min-width:200px">' + chart + '</td></tr>';
+    }).join('') + '</tbody></table></div></div>' +
+    '<div class="notice info">Панель сама проверяет каждый включённый сайт раз в минуту (интервал меняется в настройках). ' +
+    'Инциденты и уведомления о недоступности появляются автоматически.</div>';
+  rows.forEach(r => {
+    if (r.h && r.h.series) drawUptime(document.getElementById('hc-' + r.s.id), r.h.series.slice(-140));
+  });
+}
+
+/* ---------- страница: Службы ---------- */
+function humanRel(sec){
+  if (sec >= 86400) return Math.floor(sec/86400) + ' дн.';
+  if (sec >= 3600) return Math.floor(sec/3600) + ' ч.';
+  if (sec >= 60) return Math.floor(sec/60) + ' мин.';
+  return Math.floor(sec) + ' сек.';
+}
+async function pgServices(c){
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let d;
+  try { d = await api('/api/services'); } catch(e){ c.innerHTML=''; toastErr(e); return; }
+  const active = d.services.filter(s => s.state === 'active').length;
+  c.innerHTML =
+    '<div class="toolbar"><span class="muted" style="font-size:13px">Работают: <b>' +
+    active + '</b> из ' + d.services.length + '</span></div>' +
+    '<div class="card" style="padding:6px 10px"><div class="twrap"><table>' +
+    '<thead><tr><th>Служба</th><th>Состояние</th><th>Работает уже</th>' +
+    '<th>Последний перезапуск</th><th></th></tr></thead><tbody>' +
+    d.services.map(s => {
+      const rel = s.uptime_sec ? humanRel(s.uptime_sec) : '—';
+      return '<tr><td class="mono">' + esc(s.name) + '</td>' +
+      '<td><span class="pill ' + (s.state==='active'?'ok':s.state==='inactive'?'gray':'err') + '">' +
+      (s.state==='active'?'работает':s.state==='inactive'?'остановлена':esc(s.state)) + '</span></td>' +
+      '<td class="mono">' + esc(s.uptime_h || '—') + '</td>' +
+      '<td class="mono muted">' + (s.since ? esc(s.since) + ' <span class="faint">(' + rel + ' назад)</span>' : '—') + '</td>' +
+      '<td><div class="actions-cell"><button class="btn sm" onclick="svcLogs(\'' + esc(s.name) + '\')">' +
+      icon('file',14) + ' Логи</button>' +
+      '<button class="btn sm" onclick="svcRestart(\'' + esc(s.name) + '\')">' +
+      icon('refresh',14) + ' Перезапустить</button></div></td></tr>';
+    }).join('') +
+    '</tbody></table></div></div>';
+}
+async function svcRestart(name){
+  try { const r = await api('/api/services/restart', {method:'POST', body:{name}});
+    toast(esc(r.message)); go('services'); } catch(e){ toastErr(e); }
+}
+async function svcLogs(name){
+  modal('Журнал: ' + esc(name),
+    '<div class="logbox" id="svc-log" style="max-height:420px;overflow:auto;background:var(--hover)">Загрузка…</div>',
+    '<button class="btn primary" onclick="svcLogsReload(\'' + esc(name) + '\')">Обновить</button>' +
+    '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+  await svcLogsReload(name);
+}
+async function svcLogsReload(name){
+  const el = document.getElementById('svc-log');
+  if (!el) return;
+  el.textContent = 'Загрузка…';
+  try {
+    const r = await api('/api/services/logs?name=' + encodeURIComponent(name) + '&lines=300');
+    el.textContent = (r.lines || []).join('\n') || 'журнал пуст';
+  } catch(e) { el.textContent = 'ОШИБКА: ' + e.message; }
+  el.scrollTop = el.scrollHeight;
+}

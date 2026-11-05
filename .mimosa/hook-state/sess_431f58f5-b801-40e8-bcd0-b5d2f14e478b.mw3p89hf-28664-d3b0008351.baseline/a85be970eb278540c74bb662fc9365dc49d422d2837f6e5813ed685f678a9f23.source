@@ -1,0 +1,29 @@
+#!/bin/bash
+# Сборка фронтенда HostPanel: tsc -> добавление .js к импортам -> архив dist.tgz
+set -e
+cd "$(dirname "$0")"
+./node_modules/.bin/tsc
+python3 - <<'EOF'
+import re
+from pathlib import Path
+
+# Браузерные ES-модули требуют расширения .js в импортах;
+# tsc (moduleResolution node) их не добавляет — дописываем пост-фактум.
+count = 0
+for f in Path("dist").rglob("*.js"):
+    src = f.read_text(encoding="utf-8")
+    def fix(m):
+        global count
+        pre, path, post = m.group(1), m.group(2), m.group(3)
+        if not path.endswith(".js"):
+            path += ".js"
+            count += 1
+        return f'{pre}{path}{post}'
+    src = re.sub(r"(from\s+')(\.[^']+)(')", fix, src)
+    src = re.sub(r"(import\s+')(\.[^']+)(')", fix, src)
+    f.write_text(src, encoding="utf-8")
+print(f"добавлено .js к {count} импортам")
+EOF
+python3 check_handlers.py
+tar czf /tmp/dist.tgz -C dist .
+echo "OK: /tmp/dist.tgz готов"

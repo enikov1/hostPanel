@@ -16,6 +16,9 @@ import { me } from '../stores';
 import UiIcon from '../components/UiIcon.vue';
 import AppModal from '../components/AppModal.vue';
 import CodeEditor from '../components/CodeEditor.vue';
+import UiSelect from '../components/ui/UiSelect.vue';
+import UiCheckbox from '../components/ui/UiCheckbox.vue';
+import UiRadio from '../components/ui/UiRadio.vue';
 
 interface FileItem {
   name: string;
@@ -114,6 +117,7 @@ const ctxEl = ref<HTMLElement | null>(null);
 
 /* ---------- дерево слева ---------- */
 const tree = ref<TNode[]>([]);
+const treeSel = ref(''); // путь узла, выделенного правым кликом
 
 /* ---------- drag&drop ---------- */
 const dragOver = ref(''); // путь папки-приёмника либо 'body'
@@ -128,6 +132,7 @@ let logSeq = 0;
 const newDlg = ref(false);
 const newMode = ref<'dir' | 'file'>('dir');
 const newName = ref('');
+const newTarget = ref(''); // папка назначения (для дерева — путь узла)
 
 const editDlg = ref(false);
 const editPath = ref('');
@@ -140,9 +145,32 @@ const renameName = ref('');
 
 const chmodDlg = ref(false);
 const chmodPath = ref('');
-const chmodOctal = ref('');
+const chmodTarget = ref<FileItem | null>(null); // сведения о цели (тип, права)
+const chmodIsDir = ref(false);
+
+interface PermBits { r: boolean; w: boolean; x: boolean }
+
+/* чекбоксы прав: владелец / группа / публичные */
+const permBits = ref<{ o: PermBits; g: PermBits; p: PermBits }>({
+  o: { r: true, w: true, x: false },
+  g: { r: true, w: false, x: false },
+  p: { r: true, w: false, x: false },
+});
+const permSuid = ref(false);
+const permSgid = ref(false);
+const permSticky = ref(false);
+/* числовое значение: спец-биты + 3 октальные цифры (4 знака, напр. 0755) */
+const chmodNum = ref('0644');
+/* рекурсия (только для папок) */
+const chmodRec = ref(false);
+const chmodRecMode = ref(''); // '' | 'all' | 'files' | 'dirs'
+const chmodBusy = ref(false);
+const chmodProg = ref({ done: 0, total: 0 });
+const chmodErrs = ref<string[]>([]);
+const chmodNote = ref('');
 
 const uploadEl = ref<HTMLInputElement | null>(null);
+const uploadDest = ref(''); // папка для «Загрузить сюда» из дерева (пусто — текущая)
 
 /* ================= утилиты ================= */
 
@@ -269,6 +297,7 @@ async function load(): Promise<void> {
     d.value = data;
     sel.value = new Set();
     anchor = null;
+    treeSel.value = '';
     syncTree(data.path);
   } catch (e: any) {
     if (gen !== loadGen) return;
@@ -405,6 +434,21 @@ async function syncTree(path: string): Promise<void> {
     if (rest === n.path) break;
     if (!n.loaded) await loadChildren(n);
     if (!n.children.length) break;
+    level = n.children;
+  }
+}
+
+/** Обновить содержимое узла дерева по пути (если узел раскрыт и загружен). */
+async function refreshTreeNode(path: string): Promise<void> {
+  let level = tree.value;
+  for (let guard = 0; guard < 40; guard++) {
+    const n = level.find((x) => path === x.path || path.startsWith(x.path + '/'));
+    if (!n) return;
+    if (n.path === path) {
+      if (n.loaded && n.open) await loadChildren(n);
+      return;
+    }
+    if (!n.open || !n.loaded || !n.children.length) return;
     level = n.children;
   }
 }
@@ -552,8 +596,9 @@ async function save(): Promise<void> {
 
 /* ================= создание / переименование / права ================= */
 
-function newDlgOpen(mode: 'dir' | 'file'): void {
+function newDlgOpen(mode: 'dir' | 'file', target?: string): void {
   newMode.value = mode;
+  newTarget.value = target || curPathC.value;
   newName.value = '';
   newDlg.value = true;
 }
@@ -564,14 +609,15 @@ async function newDo(): Promise<void> {
   try {
     if (newMode.value === 'dir') {
       const r = await api('/api/files/mkdir', { method: 'POST',
-        body: { path: joinPath(curPathC.value, name) } });
+        body: { path: joinPath(newTarget.value, name) } });
       toast(r.message);
     } else {
       const r = await api('/api/files/save', { method: 'POST',
-        body: { path: joinPath(curPathC.value, name), content: '' } });
+        body: { path: joinPath(newTarget.value, name), content: '' } });
       toast(r.message);
     }
     newDlg.value = false;
+    if (newTarget.value !== curPathC.value) refreshTreeNode(newTarget.value);
     reload();
   } catch (e) { toastErr(e); }
 }
@@ -588,30 +634,185 @@ async function renameDo(): Promise<void> {
       body: { path: renamePath.value, new_name: renameName.value } });
     toast(r.message);
     renameDlg.value = false;
+    const par = parentOf(renamePath.value);
+    if (par !== curPathC.value) refreshTreeNode(par);
     reload();
   } catch (err) { toastErr(err); }
+}
+
+/* ================= права (chmod, расширенный диалог) ================= */
+
+/** Число из чекбоксов (спец-биты + rwx владельца/группы/публичных). */
+function chmodNumFromBits(): number {
+  const g = (p: PermBits): number => (p.r ? 4 : 0) + (p.w ? 2 : 0) + (p.x ? 1 : 0);
+  const b = permBits.value;
+  const spec = (permSuid.value ? 4 : 0) + (permSgid.value ? 2 : 0) +
+    (permSticky.value ? 1 : 0);
+  return spec * 0o1000 + g(b.o) * 0o100 + g(b.g) * 0o10 + g(b.p);
+}
+
+/** 4-значная октальная строка из числа (0644, 2755, …). */
+function chmodFmtNum(n: number): string {
+  return n.toString(8).padStart(4, '0');
+}
+
+/** Чекбоксы из числа (спец-биты + три группы rwx). */
+function chmodApplyNum(n: number): void {
+  const spec = (n >> 9) & 7;
+  permSuid.value = !!(spec & 4);
+  permSgid.value = !!(spec & 2);
+  permSticky.value = !!(spec & 1);
+  const dig = (v: number): PermBits => ({ r: !!(v & 4), w: !!(v & 2), x: !!(v & 1) });
+  permBits.value = {
+    o: dig((n >> 6) & 7),
+    g: dig((n >> 3) & 7),
+    p: dig(n & 7),
+  };
+}
+
+/* чекбоксы -> числовое поле */
+watch([permBits, permSuid, permSgid, permSticky], () => {
+  chmodNum.value = chmodFmtNum(chmodNumFromBits());
+}, { deep: true });
+
+/* сняли галочку рекурсии — сбросить режим */
+watch(chmodRec, (v) => { if (!v) chmodRecMode.value = ''; });
+
+/** Ввод числа: пересчёт чекбоксов (при 4 валидных знаках). */
+function onChmodNumInput(): void {
+  const txt = chmodNum.value.trim();
+  if (!/^[0-7]{4}$/.test(txt)) return;
+  chmodApplyNum(parseInt(txt, 8));
+}
+
+/** Финальная синхронизация перед применением: если пользователь ввёл
+ *  число, отличающееся от состояния чекбоксов — число главнее. */
+function chmodSyncNumToBits(): void {
+  const txt = chmodNum.value.trim();
+  if (!/^[0-7]{1,4}$/.test(txt)) return;
+  const v = parseInt(txt, 8);
+  if (v !== chmodNumFromBits()) chmodApplyNum(v);
+}
+
+/** Октальные права из записи списка (octal либо символьные perms). */
+function chmodOrigNum(e: FileItem): number {
+  const t = e.octal ? String(e.octal).trim() : '';
+  if (/^[0-7]{1,4}$/.test(t)) return parseInt(t.padStart(4, '0'), 8);
+  return parseInt(symToOctal(e.perms || ''), 8);
 }
 
 function chmodOpen(path: string, e?: FileItem): void {
   chmodPath.value = path;
-  chmodOctal.value = (e && e.octal) ? String(e.octal) : symToOctal(e ? (e.perms || '') : '');
+  chmodTarget.value = e || null;
+  chmodIsDir.value = !e || e.type === 'dir';
+  chmodApplyNum(e ? chmodOrigNum(e) : parseInt(symToOctal(''), 8));
+  chmodNum.value = chmodFmtNum(chmodNumFromBits());
+  chmodRec.value = false;
+  chmodRecMode.value = '';
+  chmodBusy.value = false;
+  chmodProg.value = { done: 0, total: 0 };
+  chmodErrs.value = [];
+  chmodNote.value = '';
   chmodDlg.value = true;
 }
 
-async function chmodDo(): Promise<void> {
-  const octal = chmodOctal.value.trim();
-  // валидация: 1–4 цифры 0–7 (папкам разрешают и setgid 2xxx/4xxx)
-  if (!/^[0-7]{1,4}$/.test(octal)) {
-    toastErr(new Error('неверные права: нужны 3–4 восьмеричные цифры (например 644 или 755)'));
-    return;
-  }
+/** Права из узла дерева: у узла нет сведений — спросим listing родителя. */
+async function chmodOpenNode(n: TNode): Promise<void> {
+  let info: FileItem | undefined;
   try {
-    const r = await api('/api/files/chmod', { method: 'POST',
-      body: { path: chmodPath.value, octal } });
-    toast(r.message);
-    chmodDlg.value = false;
+    const data: DirData = await api('/api/files?path=' + encodeURIComponent(parentOf(n.path)));
+    info = data.items.find((x) => baseName(x.name) === n.name);
+  } catch (e) { /* родитель недоступен — возьмём 755 по умолчанию */ }
+  chmodOpen(n.path, info || { name: n.name, type: 'dir', octal: '755' });
+}
+
+function chmodCancel(): void {
+  if (chmodBusy.value) return;
+  chmodDlg.value = false;
+}
+
+async function chmodDo(): Promise<void> {
+  if (chmodBusy.value) return;
+  chmodSyncNumToBits();
+  const num = chmodNumFromBits();
+  const spec = num & 0o7000;
+  const base = num & 0o777;
+  const anyX = permBits.value.o.x || permBits.value.g.x || permBits.value.p.x;
+  // каталогам при рекурсии x-биты добавляются всегда (как chmod -R с X)
+  const dirOctal = chmodFmtNum(spec | base | (anyX ? 0o111 : 0));
+  // файлам x-биты добавляются только если исходный файл был исполняемым
+  const fileOctal = (e: FileItem): string =>
+    chmodFmtNum(spec | ((chmodOrigNum(e) & 0o111) ? base : base & ~0o111));
+
+  const rec = chmodIsDir.value && chmodRec.value && chmodRecMode.value !== '';
+
+  chmodBusy.value = true;
+  chmodErrs.value = [];
+  chmodNote.value = '';
+  try {
+    const LIMIT = 500;
+    const jobs: { path: string; octal: string }[] = [];
+    let truncated = false;
+    if (!rec) {
+      // без рекурсии — chmod самой цели (для папки: просто её права)
+      jobs.push({ path: chmodPath.value, octal: chmodFmtNum(num) });
+    } else {
+      // рекурсия: собираем вложенные объекты через listing (до 500)
+      const mode = chmodRecMode.value; // all | files | dirs
+      const queue: { path: string; info: FileItem | null }[] =
+        [{ path: chmodPath.value, info: chmodTarget.value }];
+      while (queue.length && jobs.length < LIMIT) {
+        const qi = queue.shift()!;
+        // в очередь попадают только каталоги
+        if (mode !== 'files') jobs.push({ path: qi.path, octal: dirOctal });
+        if (jobs.length >= LIMIT) { truncated = true; break; }
+        let items: FileItem[] = [];
+        try {
+          const data: DirData = await api('/api/files?path=' + encodeURIComponent(qi.path));
+          items = data.items;
+        } catch (err: any) {
+          chmodErrs.value.push(qi.path + ' — ' + (err.message || String(err)));
+          continue;
+        }
+        for (const it of items) {
+          if (jobs.length >= LIMIT) { truncated = true; break; }
+          const p = joinPath(qi.path, baseName(it.name));
+          if (it.type === 'dir') queue.push({ path: p, info: it });
+          else if (it.type !== 'link' && mode !== 'dirs') {
+            jobs.push({ path: p, octal: fileOctal(it) });
+          }
+        }
+      }
+      if (truncated) {
+        chmodNote.value = 'достигнут лимит 500 объектов — права применены ' +
+          'не ко всем вложенным объектам';
+      }
+    }
+
+    chmodProg.value = { done: 0, total: jobs.length };
+    let okc = 0;
+    for (const j of jobs) {
+      try {
+        await api('/api/files/chmod', { method: 'POST',
+          body: { path: j.path, octal: j.octal } });
+        okc++;
+      } catch (err: any) {
+        chmodErrs.value.push(j.path + ' — ' + (err.message || String(err)));
+      }
+      chmodProg.value = { done: chmodProg.value.done + 1, total: jobs.length };
+    }
+
     reload();
-  } catch (err) { toastErr(err); }
+    if (chmodErrs.value.length) {
+      toastErr(new Error('права применены: ' + okc + ' из ' + jobs.length +
+        ' — ошибки перечислены в диалоге'));
+    } else {
+      toast('права применены: ' + okc + ' из ' + jobs.length);
+      chmodDlg.value = false;
+    }
+  } finally {
+    chmodBusy.value = false;
+  }
 }
 
 /* ================= удаление / скачивание ================= */
@@ -627,6 +828,19 @@ function delSelected(): void {
       const r = await api('/api/files/delete', { method: 'POST',
         body: { paths: items.map((e) => full(e)) } });
       toast(r.message);
+      reload();
+    } catch (err) { toastErr(err); }
+  });
+}
+
+/** Удаление по полным путям (контекстное меню дерева). */
+function delPaths(paths: string[], what: string): void {
+  confirmDlg('Удалить', 'Удалить ' + what + '?', async () => {
+    try {
+      const r = await api('/api/files/delete', { method: 'POST', body: { paths } });
+      toast(r.message);
+      const par = parentOf(paths[0]);
+      if (par !== curPathC.value) refreshTreeNode(par);
       reload();
     } catch (err) { toastErr(err); }
   });
@@ -658,10 +872,28 @@ async function downloadSelected(): Promise<void> {
 
 /* ================= архивы ================= */
 
-async function extract(e: FileItem): Promise<void> {
+/** Распаковка архива по полному пути (список или узел дерева). */
+async function extractPath(p: string): Promise<void> {
   try {
     const r = await api('/api/files/extract', { method: 'POST',
-      body: { path: full(e) } });
+      body: { path: p } });
+    toast(r.message);
+    reload();
+  } catch (err) { toastErr(err); }
+}
+
+async function extract(e: FileItem): Promise<void> {
+  return extractPath(full(e));
+}
+
+/** Архивирование произвольного набора полных путей. */
+async function zipPaths(paths: string[]): Promise<void> {
+  const dest = paths.length === 1
+    ? paths[0] + '.zip'
+    : joinPath(curPathC.value, 'archive-' + Date.now() + '.zip');
+  try {
+    const r = await api('/api/files/zip', { method: 'POST',
+      body: { paths, dest } });
     toast(r.message);
     reload();
   } catch (err) { toastErr(err); }
@@ -670,15 +902,7 @@ async function extract(e: FileItem): Promise<void> {
 async function zipSelected(): Promise<void> {
   const items = selItems();
   if (!items.length) return;
-  const dest = items.length === 1
-    ? full(items[0]) + '.zip'
-    : joinPath(curPathC.value, 'archive-' + Date.now() + '.zip');
-  try {
-    const r = await api('/api/files/zip', { method: 'POST',
-      body: { paths: selFullPaths(), dest } });
-    toast(r.message);
-    reload();
-  } catch (err) { toastErr(err); }
+  await zipPaths(selFullPaths());
 }
 
 /* ================= буфер обмена (внутренний) ================= */
@@ -734,17 +958,17 @@ async function doMove(paths: string[], dest: string): Promise<void> {
 
 /* ================= загрузка файлов ================= */
 
-async function uploadFiles(files: File[]): Promise<void> {
+async function uploadFiles(files: File[], dest?: string): Promise<void> {
   if (!files.length) return;
   let okc = 0;
   // фиксируем папку-приёмник ДО цикла: пользователь может уйти в другую
   // папку, пока файлы грузятся — тогда они уедут не туда
-  const dest = curPathC.value;
+  const to = dest || curPathC.value;
   for (const f of files) {
     const fd = new FormData();
     fd.append('file', f);
     try {
-      await apiForm('/api/files/upload?dest=' + encodeURIComponent(dest), fd);
+      await apiForm('/api/files/upload?dest=' + encodeURIComponent(to), fd);
       okc++;
       uploadLog.value.push({ id: ++logSeq, name: f.name, ok: true, msg: '' });
     } catch (e: any) {
@@ -761,10 +985,18 @@ async function uploadFiles(files: File[]): Promise<void> {
 
 async function onUploadInput(ev: Event): Promise<void> {
   const input = ev.target as HTMLInputElement;
+  const dest = uploadDest.value || undefined;
+  uploadDest.value = '';
   if (input.files && input.files.length) {
-    await uploadFiles(Array.from(input.files));
+    await uploadFiles(Array.from(input.files), dest);
   }
   input.value = '';
+}
+
+/** «Загрузить сюда» из контекстного меню дерева. */
+function uploadTo(dest: string): void {
+  uploadDest.value = dest;
+  uploadEl.value?.click();
 }
 
 /* ================= drag&drop ================= */
@@ -941,6 +1173,34 @@ function showCtx(ev: MouseEvent, item: FileItem | null): void {
   nextTick(clampCtx);
 }
 
+/** Контекстное меню для ПАПКИ В ДЕРЕВЕ: те же пункты, что применимы к
+ *  папке, но операции идут по пути узла, а не по текущей папке. */
+function showTreeCtx(ev: MouseEvent, n: TNode): void {
+  ev.preventDefault();
+  ev.stopPropagation();
+  treeSel.value = n.path; // выделить узел
+  const items: CtxItem[] = [
+    { label: 'Открыть', icon: 'ext', act: () => openNode(n) },
+    { label: 'Новая папка', icon: 'folder', act: () => newDlgOpen('dir', n.path) },
+    { label: 'Новый файл', icon: 'file', act: () => newDlgOpen('file', n.path) },
+    { label: 'Загрузить сюда', icon: 'up', act: () => uploadTo(n.path) },
+    { label: '', sep: true, act: () => { /* разделитель */ } },
+    { label: 'Архивировать в zip', icon: 'archive', act: () => zipPaths([n.path]) },
+  ];
+  if (isArchive(n.name)) {
+    items.push({ label: 'Распаковать', icon: 'archive', act: () => extractPath(n.path) });
+  }
+  items.push(
+    { label: 'Права (chmod)', icon: 'wrench', act: () => chmodOpenNode(n) },
+    { label: 'Переименовать', icon: 'edit', act: () => renameOpen(n.path, n.name) },
+    { label: '', sep: true, act: () => { /* разделитель */ } },
+    { label: 'Удалить', icon: 'trash', danger: true,
+      act: () => delPaths([n.path], '«' + n.name + '»') },
+  );
+  ctx.value = { open: true, x: ev.clientX, y: ev.clientY, items };
+  nextTick(clampCtx);
+}
+
 /** Не давать меню выходить за край окна. */
 function clampCtx(): void {
   const el = ctxEl.value;
@@ -998,8 +1258,10 @@ onBeforeUnmount(() => {
       <div class="fm-tree">
         <template v-for="f in flatTree" :key="f.n.path">
           <div class="fm-tree-i"
-               :class="{ cur: f.n.path === curPathC, drop: dragOver === f.n.path }"
+               :class="{ cur: f.n.path === curPathC, drop: dragOver === f.n.path,
+                         sel: treeSel === f.n.path }"
                :style="{ paddingLeft: (6 + f.depth * 14) + 'px' }"
+               @contextmenu.stop="showTreeCtx($event, f.n)"
                @dragover="onDragOverTree($event, f.n)"
                @dragleave="onDragLeaveTree($event, f.n)"
                @drop="onDropTree($event, f.n)">
@@ -1225,15 +1487,73 @@ onBeforeUnmount(() => {
       </template>
     </AppModal>
 
-    <!-- права -->
-    <AppModal :open="chmodDlg" title="Права доступа" @close="chmodDlg = false">
+    <!-- права (расширенный диалог, как в FileZilla) -->
+    <AppModal :open="chmodDlg" title="Права доступа" @close="chmodCancel()">
+      <div class="mono fm-chmod-path">{{ chmodPath }}</div>
+      <div class="fm-chmod-spec">
+        <UiCheckbox v-model="permSuid" :disabled="chmodBusy">SUID</UiCheckbox>
+        <UiCheckbox v-model="permSgid" :disabled="chmodBusy">SGID</UiCheckbox>
+        <UiCheckbox v-model="permSticky" :disabled="chmodBusy">Sticky</UiCheckbox>
+      </div>
+      <table class="fm-chmod-t">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Чтение</th>
+            <th>Запись</th>
+            <th>Выполнять</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>Права владельца</th>
+            <td><UiCheckbox v-model="permBits.o.r" :disabled="chmodBusy" title="Чтение" /></td>
+            <td><UiCheckbox v-model="permBits.o.w" :disabled="chmodBusy" title="Запись" /></td>
+            <td><UiCheckbox v-model="permBits.o.x" :disabled="chmodBusy" title="Выполнять" /></td>
+          </tr>
+          <tr>
+            <th>Группы</th>
+            <td><UiCheckbox v-model="permBits.g.r" :disabled="chmodBusy" title="Чтение" /></td>
+            <td><UiCheckbox v-model="permBits.g.w" :disabled="chmodBusy" title="Запись" /></td>
+            <td><UiCheckbox v-model="permBits.g.x" :disabled="chmodBusy" title="Выполнять" /></td>
+          </tr>
+          <tr>
+            <th>Публичные права</th>
+            <td><UiCheckbox v-model="permBits.p.r" :disabled="chmodBusy" title="Чтение" /></td>
+            <td><UiCheckbox v-model="permBits.p.w" :disabled="chmodBusy" title="Запись" /></td>
+            <td><UiCheckbox v-model="permBits.p.x" :disabled="chmodBusy" title="Выполнять" /></td>
+          </tr>
+        </tbody>
+      </table>
       <div class="field">
-        <label>Права (окталы, например 644)</label>
-        <input v-model="chmodOctal" type="text" class="mono" maxlength="4" @keyup.enter="chmodDo()">
+        <label>Числовое значение</label>
+        <input v-model="chmodNum" type="text" class="mono" maxlength="4"
+               placeholder="0644" :disabled="chmodBusy"
+               @input="onChmodNumInput" @keyup.enter="chmodDo()">
+      </div>
+      <div v-if="chmodIsDir" class="field">
+        <UiCheckbox v-model="chmodRec" :disabled="chmodBusy">
+          Перенять права на вложенные
+        </UiCheckbox>
+        <div v-if="chmodRec" class="fm-chmod-rec">
+          <UiRadio v-model="chmodRecMode" name="chmodrec" value="all" :disabled="chmodBusy">
+            Применить ко всем файлам и каталогам</UiRadio>
+          <UiRadio v-model="chmodRecMode" name="chmodrec" value="files" :disabled="chmodBusy">
+            Только к файлам</UiRadio>
+          <UiRadio v-model="chmodRecMode" name="chmodrec" value="dirs" :disabled="chmodBusy">
+            Только к каталогам</UiRadio>
+        </div>
+      </div>
+      <div v-if="chmodBusy || chmodProg.total" class="fm-chmod-prog">
+        обработано {{ chmodProg.done }} из {{ chmodProg.total }}
+      </div>
+      <div v-if="chmodNote" class="fm-chmod-note">{{ chmodNote }}</div>
+      <div v-if="chmodErrs.length" class="fm-chmod-errs">
+        <div v-for="(er, i) in chmodErrs" :key="i" class="fm-chmod-err mono">{{ er }}</div>
       </div>
       <template #footer>
-        <button class="btn primary" @click="chmodDo()">Применить</button>
-        <button class="btn" @click="chmodDlg = false">Отмена</button>
+        <button class="btn primary" :disabled="chmodBusy" @click="chmodDo()">OK</button>
+        <button class="btn" :disabled="chmodBusy" @click="chmodCancel()">Отмена</button>
       </template>
     </AppModal>
   </div>
@@ -1251,6 +1571,7 @@ onBeforeUnmount(() => {
   cursor:pointer;line-height:1.3;padding:2px 4px}
 .fm-tree-i:hover{background:var(--hover)}
 .fm-tree-i.cur{background:var(--sel)}
+.fm-tree-i.sel{background:var(--sel)}
 .fm-tree-i.cur .fm-tree-name{color:var(--primary);font-weight:600}
 .fm-tree-i.drop{outline:2px solid var(--primary);outline-offset:-2px}
 .fm-tree-tgl{background:none;border:0;color:var(--faint);font-size:11px;width:16px;
@@ -1342,6 +1663,22 @@ onBeforeUnmount(() => {
 .fm-log-i{font-size:12.5px;padding:2px 0;word-break:break-all}
 .fm-log-i.ok{color:var(--ok-d)}
 .fm-log-i.err{color:var(--err)}
+
+/* ================= диалог прав (chmod) ================= */
+.fm-chmod-path{font-size:12px;color:var(--muted);margin-bottom:10px;word-break:break-all}
+.fm-chmod-spec{display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap}
+.fm-chmod-t{width:100%;border-collapse:collapse;margin-bottom:12px}
+.fm-chmod-t th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+.fm-chmod-t tbody th{font-weight:600;color:var(--text);text-transform:none;
+  letter-spacing:0;font-size:13px}
+.fm-chmod-t td{padding:5px 8px;border-bottom:1px solid var(--border-2)}
+.fm-chmod-rec{display:flex;flex-direction:column;gap:6px;margin-top:8px;padding-left:4px}
+.fm-chmod-prog{margin:8px 0 4px;font-size:13px;font-weight:600;color:var(--primary)}
+.fm-chmod-note{margin:6px 0 2px;font-size:12.5px;color:var(--warn)}
+.fm-chmod-errs{margin-top:8px;max-height:140px;overflow-y:auto;background:var(--err-s);
+  border:1px solid var(--err);border-radius:var(--r-md);padding:6px 10px}
+.fm-chmod-err{font-size:12px;color:var(--err);padding:1px 0;word-break:break-all}
 
 /* ================= контекстное меню ================= */
 .fm-ctx{position:fixed;z-index:90;min-width:210px;background:var(--panel);

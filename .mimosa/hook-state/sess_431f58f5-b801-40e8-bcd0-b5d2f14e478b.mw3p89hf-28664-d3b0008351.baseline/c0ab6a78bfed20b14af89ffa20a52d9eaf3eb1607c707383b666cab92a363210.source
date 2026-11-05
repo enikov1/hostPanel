@@ -1,0 +1,1143 @@
+/* ============ Страницы: Сайты, карточка сайта ============ */
+import { api } from '../api/client';
+import { icon } from '../core/icons';
+import { esc, fmtSize, fmtDate, $ } from '../core/format';
+import { me, page } from '../core/state';
+import { registerPage, go } from '../core/router';
+import { toast, toastErr } from '../components/toast';
+import { modal, closeModal, confirmDlg } from '../components/modal';
+import { pwField, pwGenerate, pwBindStrength, credRow } from '../components/pw';
+import { statCard, drawLine, drawUptime, cssVar } from '../components/charts';
+import { mountCodeEditor, prismLangFromKind, prismLangFromPath } from '../components/code-editor';
+import type { CodeEditor } from '../components/code-editor';
+import { getPmaByDomain, pmaRemoveDlg } from './software';
+import { swsetGo } from './swset';
+import { fmGoTo } from './files';
+import { openPhpModules } from './packages';
+import type { Site } from '../types';
+
+export const WEBSERVERS: [string, string][] = [
+  ['nginx', 'nginx + PHP-FPM (рекомендуется)'],
+  ['nginx+apache', 'nginx + Apache (mod_php-совместимость)'],
+  ['apache', 'Apache (напрямую)'],
+  ['nginx+node', 'nginx + Node.js (прокси)'],
+  ['static', 'Статика без PHP'],
+];
+
+/* ---------- состояние карточки сайта (в оригинале — window._*) ---------- */
+let site: Site | null = null;
+let stTabName = 'main';
+let stMain = '', stPhp = '', stNode = '', stSsl = '';
+let confPath = '', confApi: CodeEditor | null = null;
+let secCountries: Record<string, string> = {};
+let sec: any = null;
+let logKind = 'access';
+let wzEngines: any[] = [];
+
+async function pgSites(c: HTMLElement): Promise<void> {
+  c.innerHTML = '<div class="empty">Загрузка…</div>';
+  let d: any, apps: any[];
+  try {
+    const res = await Promise.all([
+      api('/api/sites'),
+      api('/api/apps').then((x) => x.apps || []).catch(() => [])]);
+    d = res[0]; apps = res[1];
+  } catch (e) { c.innerHTML = ''; toastErr(e); return; }
+  apps.forEach((a) => { getPmaByDomain()[a.domain] = a; });
+  const roots = d.sites.filter((s: Site) => !s.parent);
+  const subs = d.sites.filter((s: Site) => s.parent);
+  if (!d.sites.length) {
+    c.innerHTML =
+      '<div class="card" style="text-align:center;padding:54px 20px">' +
+      '<div style="max-width:520px;margin:0 auto">' +
+      '<div class="empty" style="padding:0 0 8px">Здесь появятся ваши сайты.</div>' +
+      '<div class="muted" style="font-size:13.5px;line-height:1.6;margin-bottom:18px">' +
+      'Сайт — это ваш адрес в интернете, например <b>mysite.ru</b>. Создайте его здесь, ' +
+      'затем загрузите файлы и привяжите домен. Если PHP ещё не установлен, мастер подскажет.</div>' +
+      '<button class="btn primary" onclick="wizardSite()">' + icon('plus', 15) + ' Создать первый сайт</button>' +
+      '</div></div>';
+    return;
+  }
+  c.innerHTML =
+    '<div class="toolbar"><button class="btn primary" onclick="wizardSite()">' + icon('plus', 15) +
+    'Создать сайт</button>' +
+    '<button class="btn" title="Страница, которая открывается по IP-адресу сервера (404, закрыта от индексации)" ' +
+    'onclick="defaultSiteDlg()">' + icon('file', 15) + ' Заглушка для IP</button><span class="spacer"></span>' +
+    '<span class="muted" style="font-size:13px">Сайтов: ' + d.sites.length +
+    ' · поддоменов: ' + subs.length + '</span></div>' +
+    diskCard(d.sites) +
+    '<div class="card" style="padding:6px 10px"><div class="twrap"><table>' +
+    '<thead><tr><th>Домен</th><th>Веб-сервер</th><th>PHP / Node</th><th>SSL</th><th>Фильтры</th><th>Место</th><th>Статус</th><th></th></tr></thead><tbody>' +
+    roots.map((s: Site) => siteRow(s, subs.filter((x: Site) => x.parent === s.id))).join('') +
+    '</tbody></table></div></div>' +
+    '<div class="faint" style="font-size:12px;margin-top:10px">SSL — это защита соединения: сайт открывается ' +
+    'по https:// и браузер показывает замочек. «Настройки» — версия PHP, SSL, безопасность и файлы сайта.</div>' +
+    (me.demo ? '<div class="notice info">Демо-режим: конфиги веб-сервера не изменяются, все данные фиктивные.</div>' : '');
+  drawDiskChart(d.sites);
+  dnsPills(d.sites.filter((s: Site) => !s.parent));
+}
+
+/* плашки DNS у сайтов без SSL: домен уже указывает на сервер? */
+async function dnsPills(sites: Site[]): Promise<void> {
+  for (const s of sites) {
+    const el = document.getElementById('dns-pill-' + s.id);
+    if (!el) continue;
+    let r: any = null;
+    try { r = await api('/api/site/' + s.id + '/dns_check'); }
+    catch (e) { el.remove(); continue; }
+    if (!el.isConnected) continue;
+    const ips = (r.server_ips || []).join(', ');
+    if (r.dns_ok) {
+      el.className = 'pill ok';
+      el.textContent = 'DNS ок';
+      el.title = 'Домен указывает на этот сервер — можно выпускать Let\'s Encrypt';
+    } else {
+      el.className = 'pill warn';
+      el.textContent = 'DNS не настроен';
+      el.title = 'Домен ' + s.domain + ' пока НЕ указывает на этот сервер. ' +
+        'Добавьте у регистратора A-запись: ' + s.domain + ' → ' +
+        (ips || 'IP сервера (см. «Обзор»)') + '. Изменения DNS применяются до нескольких часов.';
+    }
+  }
+}
+
+/* карточка «Место по сайтам»: бары текущего размера + график роста */
+function diskCard(sites: Site[]): string {
+  const rows = sites.filter((s) => !s.parent)
+    .map((s) => ({ domain: s.domain, disk: s.disk || 0, hist: s.disk_hist || [] }))
+    .sort((a, b) => b.disk - a.disk).slice(0, 8);
+  if (!rows.length) return '';
+  const total = rows.reduce((a, x) => a + x.disk, 0);
+  const max = Math.max(...rows.map((x) => x.disk), 1);
+  const bars = rows.map((x) => {
+    const pct = Math.max(2, Math.round(x.disk / max * 100));
+    const grow = x.hist.length >= 2
+      ? (x.disk - x.hist[0].mb * 1024 * 1024) : 0;
+    const growTxt = grow > 1024 * 1024
+      ? ' <span class="pill warn" style="font-size:11px">+' + fmtSize(grow) + '</span>'
+      : (grow < -1024 * 1024
+        ? ' <span class="pill ok" style="font-size:11px">' + fmtSize(grow) + '</span>' : '');
+    return '<div class="row" style="align-items:center;gap:10px;padding:3px 0">' +
+      '<span style="width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(x.domain) + '">' + esc(x.domain) + '</span>' +
+      '<div style="flex:1;height:14px;border-radius:7px;background:var(--border);overflow:hidden">' +
+      '<div style="width:' + pct + '%;height:100%;border-radius:7px;background:var(--primary)"></div></div>' +
+      '<b style="width:70px;text-align:right">' + fmtSize(x.disk) + '</b>' + growTxt + '</div>';
+  }).join('');
+  return '<div class="card" style="margin-bottom:12px"><div class="card-h">' +
+    '<span class="card-t">Место по сайтам</span><span class="card-spacer"></span>' +
+    '<span class="pill gray">всего ' + fmtSize(total) + '</span></div>' +
+    '<div style="padding:6px 8px 2px">' + bars + '</div>' +
+    '<canvas id="sites-disk-chart" class="chart" style="height:120px;margin-top:6px"></canvas>' +
+    '<div class="faint" style="font-size:11.5px;padding:0 8px 8px">Полоски — текущий размер папки каждого сайта, ' +
+    'график — суммарный рост места (точка раз в 6 часов). Жёлтый значок — прирост с первой точки истории.</div></div>';
+}
+
+function drawDiskChart(sites: Site[]): void {
+  const cv = document.getElementById('sites-disk-chart') as HTMLCanvasElement | null;
+  if (!cv) return;
+  const byDate: Record<string, number> = {};
+  sites.filter((s) => !s.parent).forEach((s) =>
+    (s.disk_hist || []).forEach((p) => {
+      const day = (p.t || '').slice(0, 10);
+      // точка раз в 6 часов — берём ПОСЛЕДНЮЮ точку дня, а не сумму
+      if (day) byDate[day] = (p.mb || 0);
+    }));
+  const days = Object.keys(byDate).sort();
+  if (days.length < 2) { cv.style.display = 'none'; return; }
+  const data = days.map((d) => byDate[d]);
+  drawLine(cv, [{ data, color: cssVar('--primary'), fill: true }],
+    { labels: [days[0], days[days.length - 1]], max: Math.max(...data, 1) * 1.2 });
+}
+
+/* кнопка phpMyAdmin в строке сайта */
+function pmaSiteBtn(domain: string, hasPhp?: string | boolean): string {
+  if (!hasPhp) return '';
+  const a = getPmaByDomain()[domain];
+  return '<button class="btn sm" title="' + (a ?
+    'phpMyAdmin установлен — открыть в новом окне' :
+    'Установить phpMyAdmin в папку /pma этого сайта') +
+    '" onclick="pmaSiteDlg(\'' + esc(domain) + '\')">' +
+    icon(a ? 'ext' : 'down', 14) + ' phpMyAdmin</button>';
+}
+
+function pmaSiteDlg(domain: string): void {
+  const a = getPmaByDomain()[domain];
+  if (a && a.installed) {  // у неустановленного pma нет url — раньше окно
+    // открывалось и «Открыть в новом окне» давало пустую вкладку
+    modal('phpMyAdmin — ' + esc(domain),
+      '<div class="kv"><b>Адрес</b><span class="mono">' + esc(a.url) + '</span></div>' +
+      (a.protected
+        ? '<div class="field" style="margin-top:8px"><label>Вход в папку (basic auth)</label>' +
+          credRow('логин', a.user) + credRow('пароль', a.password, 'pma-site-pass') +
+          '<div class="faint" style="font-size:12px">Затем внутри phpMyAdmin — пользователь и пароль MySQL.</div></div>'
+        : '<div class="notice warn" style="margin-top:8px">Папка не закрыта паролем — входите сразу пользователем MySQL.</div>') +
+      '<div class="row" style="margin-top:14px">' +
+      '<button class="btn primary" onclick="pmaSiteOpen(\'' + esc(domain) + '\')">' + icon('ext', 15) + ' Открыть в новом окне</button>' +
+      '<button class="btn" onclick="swsetGo(\'pma\')">Настройки</button>' +
+      '<button class="btn danger" onclick="pmaRemoveDlg(\'' + esc(domain) + '\')">Удалить</button></div>',
+      '<button class="btn" onclick="closeModal(); go(\'sites\')">Закрыть</button>', true);
+    return;
+  }
+  modal('Установить phpMyAdmin — ' + esc(domain),
+    '<div class="notice info">phpMyAdmin — веб-интерфейс для работы с базами данных. ' +
+    'Скачивается с официального сайта и ставится в папку <b>/pma</b> этого сайта.</div>' +
+    '<label class="check" style="margin:6px 0 4px"><input type="checkbox" ' +
+    'id="ps-protect" checked onchange="pmaProtToggle()"> ' +
+    'Закрыть папку паролем (рекомендуется)</label>' +
+    '<div class="field" id="pma-pass-row">' +
+    pwField('pma-pass', { label: 'Пароль папки /pma',
+      hint: 'Понадобится при входе в phpMyAdmin. Сохраните его.' }) + '</div>' +
+    '<div class="notice info">Внутри phpMyAdmin входите пользователем базы — ' +
+    'реквизиты есть в разделе «Базы данных».</div>',
+    '<button class="btn primary" onclick="pmaSiteInstall(\'' + esc(domain) + '\')">' +
+    icon('down', 15) + ' Установить</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+  setTimeout(() => { pwGenerate('pma-pass'); pwBindStrength('pma-pass'); }, 250);
+}
+
+function pmaSiteOpen(domain: string): void {
+  const a = getPmaByDomain()[domain];
+  if (a && a.url) window.open(a.url, '_blank', 'noopener');
+  else toast('phpMyAdmin ещё не установлен — установите его кнопкой «Установить»', 'warn');
+}
+
+async function pmaSiteInstall(domain: string): Promise<void> {
+  const el = document.getElementById('ps-protect') as HTMLInputElement | null;
+  const protect = el ? el.checked : true;
+  const passEl = document.getElementById('pma-pass') as HTMLInputElement | null;
+  try {
+    const r = await api('/api/apps/install', { method: 'POST',
+      body: { app: 'pma', site: domain, protect,
+        password: passEl ? passEl.value : '' } });
+    closeModal();
+    toast(esc(r.message));
+    pmaSiteWait();
+  } catch (e) { toastErr(e); }
+}
+
+async function pmaSiteWait(): Promise<void> {
+  for (let i = 0; i < 180; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    try { const t = await api('/api/apps'); if (!t.running) break; }
+    catch (e) { return; }
+  }
+  toast('phpMyAdmin готов — кнопка «phpMyAdmin» у сайта покажет адрес и доступы');
+  if (page === 'sites') go('sites');
+}
+
+function siteRow(s: Site, children: Site[]): string {
+  const ws = (WEBSERVERS.find((w) => w[0] === s.webserver) || [, '?'])[1];
+  let phpnode = s.php ? 'PHP ' + esc(s.php) : '';
+  if (s.node && s.node.enabled) phpnode = (phpnode ? phpnode + ' + ' : '') + 'Node ' + esc(s.node.version);
+  const ssl = s.ssl && s.ssl.kind !== 'none';
+  let sslPill = '<span class="pill gray">нет</span>';
+  if (ssl) {
+    const days = Math.round((new Date(s.ssl.expires as string).getTime() - Date.now()) / 86400000);
+    const kind = s.ssl.kind === 'letsencrypt' ? "Let's Encrypt" : 'самоподписанный';
+    if (isNaN(days)) {
+      sslPill = '<span class="pill warn">' + kind + '</span>';
+    } else {
+      const cls = days < 20 ? 'err' : days < 40 ? 'warn' : 'ok';
+      sslPill = '<span class="pill ' + cls + '">' + kind + ' · ' + days + ' дн.</span>';
+    }
+  }
+  const subRows = children.map((ch) =>
+    '<tr class="sub-row"><td style="padding-left:26px"><span class="faint">└</span> <b>' + esc(ch.domain) + '</b>' +
+    (ch.enabled ? '' : ' <span class="pill warn">отключён</span>') +
+    (ch.maintenance ? ' <span class="pill warn">обслуж.</span>' : '') + '</td>' +
+    '<td class="muted">' + esc((WEBSERVERS.find((w) => w[0] === ch.webserver) || [, '?'])[1]) + '</td>' +
+    '<td class="muted">' + (ch.php ? 'PHP ' + esc(ch.php) : '—') + '</td>' +
+    '<td>' + (ch.ssl && ch.ssl.kind !== 'none' ?
+      '<span class="pill ok">SSL</span>' : '<span class="pill gray">нет</span>') + '</td>' +
+    '<td class="muted" style="font-size:12px">' + esc(ch.security_status || 'нет') + '</td>' +
+    '<td class="muted">' + fmtSize(ch.disk) + '</td>' +
+    '<td><span class="pill ' + (ch.enabled ? 'ok' : 'gray') + '">' + (ch.enabled ? 'работает' : 'отключён') + '</span></td>' +
+    '<td><div class="actions-cell">' +
+    '<button class="btn sm" onclick="siteDlg(' + ch.id + ')">' + icon('gear', 14) + '</button>' +
+    pmaSiteBtn(ch.domain, ch.php) +
+    '<button class="btn sm icon danger" onclick="delSite(' + ch.id + ', \'' + esc(ch.domain) + '\')">' + icon('trash', 14) + '</button>' +
+    '</div></td></tr>').join('');
+  return '<tr><td><b>' + esc(s.domain) + '</b>' +
+    (s.enabled ? '' : ' <span class="pill warn">отключён</span>') +
+    (s.maintenance ? ' <span class="pill warn">обслуживание</span>' : '') +
+    (!ssl ? ' <span class="pill gray" id="dns-pill-' + s.id +
+      '" title="Проверяю DNS-запись домена…">DNS…</span>' : '') +
+    '</td>' +
+    '<td>' + esc(ws) + '</td><td>' + (phpnode || '<span class="faint">—</span>') + '</td>' +
+    '<td>' + sslPill + '</td>' +
+    '<td class="muted" style="font-size:12px">' + esc(s.security_status || 'нет') + '</td>' +
+    '<td>' + fmtSize(s.disk) + '</td>' +
+    '<td><span class="pill ' + (s.enabled ? 'ok' : 'gray') + '"><span class="dot"></span>' +
+    (s.enabled ? 'работает' : 'отключён') + '</span></td>' +
+    '<td><div class="actions-cell">' +
+    '<button class="btn sm" onclick="siteDlg(' + s.id + ')">' + icon('gear', 14) + ' Настройки</button>' +
+    pmaSiteBtn(s.domain, s.php) +
+    '<button class="btn sm icon" title="Вкл/выкл сайт" onclick="toggleSite(' + s.id + ')">' + icon('play', 14) + '</button>' +
+    '<button class="btn sm icon" title="Поддомен" onclick="wizardSubdomain(' + s.id + ', \'' + esc(s.domain) + '\')">' + icon('plus', 14) + '</button>' +
+    '<button class="btn sm icon danger" title="Удалить" onclick="delSite(' + s.id + ', \'' + esc(s.domain) + '\')">' + icon('trash', 14) + '</button>' +
+    '</div></td></tr>' + subRows;
+}
+
+async function toggleSite(id: number): Promise<void> {
+  try { const r = await api('/api/sites/toggle', { method: 'POST', body: { id } }); toast(esc(r.message)); go(page); }
+  catch (e) { toastErr(e); }
+}
+
+function delSite(id: number, domain: string): void {
+  confirmDlg('Удалить сайт', 'Сайт <b>' + esc(domain) + '</b>, его конфиги и поддомены будут удалены. Файлы в папке сайта останутся. Продолжить?',
+    async () => {
+      try { const r = await api('/api/sites/delete', { method: 'POST', body: { id, delete_files: false } });
+        toast(esc(r.message)); go(page); } catch (e) { toastErr(e); }
+    });
+}
+
+/* ---------- мастер создания сайта ---------- */
+async function wizardSite(): Promise<void> {
+  let php: any, engines: any[];
+  try {
+    const res = await Promise.all([
+      api('/api/php').catch(() => ({ versions: {} })),
+      api('/api/db').then((x) => x.engines || []).catch(() => [])]);
+    php = res[0].versions || {}; engines = res[1];
+  } catch (e) { php = {}; engines = []; }
+  wzEngines = engines.filter((e) => e.available);
+  const versions = Object.keys(php).sort().reverse();
+  const phpOpts = versions.map((v) => '<option value="' + v + '">PHP ' + v + '</option>').join('');
+  const engOpts = wzEngines.map((e) => '<option value="' + e.id + '">' + esc(e.name) + '</option>').join('');
+  modal('Новый сайт',
+    '<div class="field"><label>Домен (адрес сайта)</label>' +
+    '<input type="text" id="wz-domain" placeholder="например, mysite.ru" autofocus></div>' +
+    '<label class="check"><input type="checkbox" id="wz-www"> Обслуживать также адрес с www ' +
+    '(www.домен войдёт в server_name и в сертификат SSL)</label>' +
+    '<div class="field"><label>На чём работает сайт</label><select id="wz-ws" onchange="wzUpdate()">' +
+      WEBSERVERS.map((w) => '<option value="' + w[0] + '">' + w[1] + '</option>').join('') + '</select>' +
+      '<div class="faint" style="font-size:11.5px;margin-top:4px">Если не знаете, что выбрать — оставьте как есть.</div></div>' +
+    '<div id="wz-php-block"><div class="field"><label>Версия PHP</label><select id="wz-php">' + phpOpts + '</select></div></div>' +
+    '<div id="wz-node-block" class="hidden">' +
+      '<div class="row"><div class="field" style="flex:1"><label>Версия Node.js</label><select id="wz-node-v"><option>20</option><option>18</option><option>22</option></select></div>' +
+      '<div class="field" style="flex:1"><label>Порт приложения</label><input type="number" id="wz-node-p" value="3000"></div>' +
+      '<div class="field" style="flex:1"><label>Файл запуска</label><input type="text" id="wz-node-s" value="app.js"></div></div></div>' +
+    '<div class="field"><label>Защита соединения (SSL)</label><select id="wz-ssl" onchange="wzUpdate()">' +
+      '<option value="none">Пока без SSL — можно включить позже</option>' +
+      '<option value="letsencrypt">Бесплатный сертификат Let\'s Encrypt (нужен работающий домен)</option>' +
+      '<option value="selfsigned">Самоподписанный (для тестов)</option></select></div>' +
+    '<div id="wz-email-block" class="field hidden"><label>E-mail для сертификата</label><input type="email" id="wz-email" placeholder="admin@example.ru"></div>' +
+    '<label class="check"><input type="checkbox" id="wz-db" checked onchange="wzUpdate()"> Создать базу данных (нужна для WordPress, магазинов и т.п.)</label>' +
+    (wzEngines.length > 1
+      ? '<div class="field" id="wz-db-eng-block"><label>Тип базы</label><select id="wz-db-eng">' + engOpts + '</select>' +
+        '<div class="faint" style="font-size:11.5px;margin-top:4px">MariaDB подходит большинству сайтов (WordPress, Opencart); PostgreSQL — если приложение требует именно её.</div></div>'
+      : '') +
+    '<div class="notice info">Всё остальное — папка сайта, настройки веб-сервера — создастся автоматически.</div>',
+    '<button class="btn primary" onclick="wizardCreate()">' + icon('check', 15) + ' Создать сайт</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+  wzUpdate();
+  setTimeout(() => { const i = $('#wz-domain') as HTMLInputElement | null; if (i) i.focus(); }, 80);
+}
+
+function wzUpdate(): void {
+  const ws = ($('#wz-ws') as HTMLSelectElement).value;
+  ($('#wz-php-block') as HTMLElement).classList.toggle('hidden', !(ws === 'nginx' || ws === 'nginx+apache' || ws === 'apache'));
+  ($('#wz-node-block') as HTMLElement).classList.toggle('hidden', ws !== 'nginx+node');
+  ($('#wz-email-block') as HTMLElement).classList.toggle('hidden', ($('#wz-ssl') as HTMLSelectElement).value !== 'letsencrypt');
+  const engBlock = document.getElementById('wz-db-eng-block');
+  if (engBlock) engBlock.classList.toggle('hidden', !($('#wz-db') as HTMLInputElement).checked);
+}
+
+async function wizardCreate(): Promise<void> {
+  const body = {
+    domain: ($('#wz-domain') as HTMLInputElement).value.trim(), webserver: ($('#wz-ws') as HTMLSelectElement).value,
+    www: $('#wz-www') ? ($('#wz-www') as HTMLInputElement).checked : false,
+    php: $('#wz-php') ? ($('#wz-php') as HTMLSelectElement).value : '',
+    ssl_kind: ($('#wz-ssl') as HTMLSelectElement).value, email: $('#wz-email') ? ($('#wz-email') as HTMLInputElement).value : '',
+    create_db: ($('#wz-db') as HTMLInputElement).checked,
+    db_engine: $('#wz-db-eng') ? ($('#wz-db-eng') as HTMLSelectElement).value :
+      (wzEngines[0] ? wzEngines[0].id : 'mysql'),
+    node_version: $('#wz-node-v') ? ($('#wz-node-v') as HTMLSelectElement).value : '20',
+    node_port: $('#wz-node-p') ? +($('#wz-node-p') as HTMLInputElement).value : 3000,
+    node_script: $('#wz-node-s') ? ($('#wz-node-s') as HTMLInputElement).value : 'app.js',
+  };
+  let r: any;
+  try { r = await api('/api/sites/create', { method: 'POST', body }); }
+  catch (e) { toastErr(e); return; }
+  closeModal();
+  const dom = esc(body.domain);
+  let dbHtml = '';
+  if (r.db) {
+    dbHtml = '<div class="notice ok">Вместе с сайтом создана база данных — сохраните реквизиты:</div>' +
+      credRow('СУБД', r.db.engine === 'pg' ? 'PostgreSQL' : 'MariaDB / MySQL') +
+      credRow('Название базы', r.db.name) +
+      credRow('Пользователь', r.db.user) +
+      credRow('Пароль', r.db.password, 'wz-db-pass') +
+      '<div class="faint" style="font-size:12px;margin:4px 0 10px">Сервер (хост): <b class="mono">localhost</b></div>';
+  }
+  modal('Сайт «' + dom + '» создан',
+    '<div class="notice ok">Сайт готов и уже работает. Что можно сделать дальше:</div>' + dbHtml +
+    '<div class="kv" style="margin:8px 0 4px">' +
+    '<b>Файлы сайта</b><span>раздел «Файловый менеджер» — загрузите туда файлы вашего сайта</span>' +
+    '<b>Защита (SSL)</b><span>в настройках сайта включите бесплатный сертификат — тогда сайт будет открываться по https://</span>' +
+    '<b>Домен</b><span>настройте у регистратора A-запись домена на IP этого сервера</span>' +
+    '</div>',
+    '<button class="btn primary" onclick="closeModal(); openSite(\'' + body.domain + '\')">Открыть сайт</button>' +
+    '<button class="btn" onclick="closeModal(); go(\'files\')">Загрузить файлы</button>' +
+    '<button class="btn" onclick="closeModal(); siteDlg(' + r.site_id + ')">Настройки сайта</button>' +
+    '<button class="btn" onclick="closeModal(); go(\'sites\')">Готово</button>', true);
+  go('sites');
+}
+
+/* ---------- мастер поддомена ---------- */
+async function wizardSubdomain(parentId: number, parentDomain: string): Promise<void> {
+  let php: any;
+  try { php = (await api('/api/php')).versions; } catch (e) { php = {}; }
+  const versions = Object.keys(php).sort().reverse();
+  modal('Новый поддомен' + (parentDomain ? ' для ' + esc(parentDomain) : ''),
+    '<div class="notice info">Полное имя поддомена: <b><span id="sub-preview">….' + esc(parentDomain || '') + '</span></b>. ' +
+    'Папка создастся внутри сайта: subdomains/&lt;имя&gt;/public_html. SSL выпускается отдельно.</div>' +
+    '<div class="field"><label>Имя поддомена (без точки)</label>' +
+    '<input type="text" id="sub-name" placeholder="например, blog или shop" oninput="$(\'#sub-preview\').textContent=this.value+\'.' + esc(parentDomain || '') + '\'"></div>' +
+    '<div class="field"><label>Веб-сервер</label><select id="sub-ws">' +
+      WEBSERVERS.map((w) => '<option value="' + w[0] + '">' + w[1] + '</option>').join('') + '</select></div>' +
+    '<div class="field"><label>Версия PHP</label><select id="sub-php">' +
+      versions.map((v) => '<option value="' + v + '">PHP ' + v + '</option>').join('') + '</select></div>' +
+    '<div class="field"><label>SSL</label><select id="sub-ssl">' +
+      '<option value="none">Без SSL</option><option value="letsencrypt">Let\'s Encrypt</option>' +
+      '<option value="selfsigned">Самоподписанный</option></select></div>',
+    '<button class="btn primary" onclick="subCreate(' + parentId + ')">' + icon('check', 15) + ' Создать поддомен</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>');
+}
+
+async function subCreate(parentId: number): Promise<void> {
+  const name = ($('#sub-name') as HTMLInputElement).value.trim();
+  try {
+    const d = await api('/api/sites');
+    const parent = d.sites.find((s: Site) => s.id === parentId);
+    const domain = name + '.' + parent.domain;
+    const r = await api('/api/sites/create', { method: 'POST', body: {
+      domain, parent: parentId, webserver: ($('#sub-ws') as HTMLSelectElement).value,
+      php: ($('#sub-php') as HTMLSelectElement).value, ssl_kind: ($('#sub-ssl') as HTMLSelectElement).value } });
+    closeModal(); toast(esc(r.message)); go('sites');
+  } catch (e) { toastErr(e); }
+}
+
+/* ---------- модал настроек сайта ---------- */
+async function siteDlg(id: number): Promise<void> {
+  let d: Site, phpData: any;
+  try {
+    d = (await api('/api/sites')).sites.find((s: Site) => s.id === id);
+    phpData = await api('/api/php');
+  } catch (e) { toastErr(e); return; }
+  if (!d) { toast('Сайт не найден — обновите список сайтов', 'warn'); return; }
+  site = d;
+  const versions = Object.keys(phpData.versions).sort().reverse();
+  const mods = d.php ? (phpData.versions[d.php] || []) : [];
+  const modNames = phpData.module_names || {};
+  const tabBtn = (t: string, l: string) => '<button class="tab" data-tab="' + t + '" onclick="stTab(\'' + t + '\')">' + l + '</button>';
+  const isNode = d.webserver === 'nginx+node';
+  modal('Сайт: ' + esc(d.domain),
+    '<div class="tabs" id="st-tabs">' + tabBtn('main', 'Основное') + tabBtn('php', 'PHP и FPM') +
+    tabBtn('node', 'Node.js') + tabBtn('ssl', 'SSL') + tabBtn('sec', 'Фильтры') +
+    (me.expert ? tabBtn('conf', 'Конфиги') : '') +
+    tabBtn('stats', 'Статистика') + tabBtn('load', 'Нагрузка') +
+    tabBtn('health', 'Живучесть') + tabBtn('logs', 'Логи') + '</div>' +
+    '<div id="st-body"></div>',
+    '<button class="btn primary" onclick="siteSave()">' + icon('check', 15) + ' Сохранить</button>' +
+    '<button class="btn" onclick="closeModal()">Закрыть</button>', 2);
+  stTabName = 'main';
+  stMain = stMainHtml(d);
+  stPhp = '<div class="field"><label>Версия PHP</label><select id="st-php" onchange="stPhpChanged()">' +
+    versions.map((v) => '<option value="' + v + '"' + (d.php === v ? ' selected' : '') + '>PHP ' + v + '</option>').join('') + '</select></div>' +
+    '<label>Модули PHP (для версии ' + esc(d.php || '—') + ')</label>' +
+    '<div id="st-mods" style="max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:10px">' +
+    mods.map((m: string) => '<label class="check" style="margin:4px 0"><input type="checkbox" class="st-mod" value="' + esc(m) + '"' +
+      ((d.php_modules || []).includes(m) ? ' checked' : '') + '> ' + esc(m) +
+      (modNames[m] ? ' <span class="faint">— ' + esc(modNames[m]) + '</span>' : '') + '</label>').join('') + '</div>' +
+    '<div class="row" style="margin-top:8px"><button class="btn sm" onclick="openPhpModules()">' + icon('pkg', 14) + ' Установить модули (apt)</button></div>' +
+    '<label style="margin-top:12px">Настройки пула PHP-FPM</label>' +
+    '<div class="row"><div class="field" style="flex:1"><label>Режим</label><select id="st-fpm-pm">' +
+    ['dynamic', 'static', 'ondemand'].map((m) => '<option' + (d.fpm && d.fpm.pm === m ? ' selected' : '') + '>' + m + '</option>').join('') + '</select></div>' +
+    '<div class="field" style="flex:1"><label>max_children</label><input type="number" id="st-fpm-mc" value="' + (d.fpm ? d.fpm.max_children : 10) + '"></div>' +
+    '<div class="field" style="flex:1"><label>start_servers</label><input type="number" id="st-fpm-ss" value="' + (d.fpm ? d.fpm.start_servers : 3) + '"></div></div>' +
+    '<div class="row" style="margin-top:8px;align-items:center"><button class="btn sm" onclick="stFpmReco()">' + icon('zap', 14) + ' Подобрать под сервер</button>' +
+    '<span class="faint" id="st-fpm-reco" style="font-size:11.5px"></span></div>';
+  stNode = (d.node ? '' : '<div class="notice warn">Node.js недоступен для этого сайта</div>') ||
+    '<label class="check"><input type="checkbox" id="st-node-en"' + (d.node && d.node.enabled ? ' checked' : '') + '> Приложение Node.js включено (systemd-юнит)</label>' +
+    '<div class="row"><div class="field" style="flex:1"><label>Версия</label><select id="st-node-v">' +
+    ['18', '20', '22'].map((v) => '<option' + (d.node && d.node.version === v ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></div>' +
+    '<div class="field" style="flex:1"><label>Порт</label><input type="number" id="st-node-p" value="' + (d.node ? d.node.port : 3000) + '"></div>' +
+    '<div class="field" style="flex:1"><label>Файл запуска</label><input type="text" id="st-node-s" value="' + (d.node ? esc(d.node.script) : 'app.js') + '"></div></div>' +
+    '<div class="row"><button class="btn" onclick="nodeAct(\'restart\')">' + icon('refresh', 15) + ' Перезапустить</button>' +
+    '<button class="btn" onclick="nodeAct(\'npm\')">' + icon('down', 15) + ' npm install</button>' +
+    '<button class="btn" onclick="nodeLogsDlg()">' + icon('file', 15) + ' Журнал приложения</button></div>';
+  stSsl = sslBlockHtml(d);
+  stTab('main');
+}
+
+function sslBlockHtml(s: Site): string {
+  const ssl = s.ssl || { kind: 'none' };
+  const dnsBtn = '<div class="row" style="margin-top:12px"><button class="btn" onclick="sslDnsCheck()">' +
+    icon('globe', 15) + ' Проверить DNS домена</button>' +
+    '<button class="btn" onclick="siteDnsFullDlg()">' + icon('shield', 15) + ' Полная диагностика DNS</button></div>' +
+    '<div id="ssl-dns" style="margin-top:10px"></div>';
+  if (ssl.kind === 'none')
+    return '<div class="notice warn">SSL не настроен. Рекомендуется Let\'s Encrypt — бесплатный сертификат с автопродлением.</div>' +
+      '<div class="faint" style="font-size:12px;margin:-2px 0 8px">Сертификат выпускается для домена' +
+      (s.www ? ' и для www.' + esc(s.domain) + '.' :
+        ' (www отключён — включите галочку «Обслуживать www.домен» во вкладке «Основное», если он нужен).') + '</div>' +
+      '<div class="row"><button class="btn primary" onclick="sslIssue(\'letsencrypt\')">Выпустить Let\'s Encrypt</button>' +
+      '<button class="btn" onclick="sslIssue(\'selfsigned\')">Самоподписанный</button></div>' + dnsBtn;
+  const days = Math.round((new Date(ssl.expires as string).getTime() - Date.now()) / 86400000);
+  const daysTxt = isNaN(days) ? '' : ' (' + days + ' дн.)';
+  return '<div class="kv"><b>Тип</b><span>' + (ssl.kind === 'letsencrypt' ? "Let's Encrypt" : 'Самоподписанный') + '</span>' +
+    '<b>Домены</b><span>' + esc((ssl.domains || []).join(', ')) + '</span>' +
+    '<b>Действует до</b><span>' + esc(ssl.expires) + daysTxt + '</span></div>' +
+    '<div class="row" style="margin-top:14px"><button class="btn" onclick="sslIssue(\'letsencrypt\')">' + icon('refresh', 15) + ' Перевыпустить</button>' +
+    '<button class="btn danger" onclick="sslDel()">Удалить сертификат</button></div>' + dnsBtn;
+}
+
+async function sslDnsCheck(): Promise<void> {
+  const el = document.getElementById('ssl-dns');
+  if (!el) return;
+  el.innerHTML = '<div class="empty">Проверяю DNS…</div>';
+  try {
+    const r = await api('/api/site/' + (site as Site).id + '/dns_check');
+    const pill = r.dns_ok ? '<span class="pill ok">указывает на этот сервер</span>'
+      : '<span class="pill err">не указывает на этот сервер</span>';
+    el.innerHTML =
+      '<div class="kv"><b>Домен</b><span class="mono">' + esc(r.domain) + ' ' + pill + '</span>' +
+      '<b>A-записи</b><span class="mono">' + esc((r.ipv4 || []).join(', ') || '—') + '</span>' +
+      '<b>AAAA-записи</b><span class="mono">' + esc((r.ipv6 || []).join(', ') || '—') + '</span>' +
+      '<b>IP сервера</b><span class="mono">' + esc((r.server_ips || []).join(', ') || '—') + '</span></div>' +
+      (r.dns_ok ? '' : '<div class="notice warn" style="margin-top:8px">Для Let\'s Encrypt домен должен указывать на IP этого сервера: измените A-запись в панели регистратора домена и повторите проверку.</div>');
+  } catch (e: any) { el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; }
+}
+
+function stTab(t: string): void {
+  stTabName = t;
+  document.querySelectorAll('#st-tabs .tab').forEach((b) => b.classList.toggle('active', (b as HTMLElement).dataset.tab === t));
+  const map: Record<string, string> = { main: stMain, php: stPhp, node: stNode,
+    ssl: stSsl, stats: '<div class="empty">Загрузка…</div>',
+    load: '<div class="empty">Загрузка…</div>', health: '<div class="empty">Загрузка…</div>',
+    logs: '<div class="empty">Загрузка…</div>', conf: '<div class="empty">Загрузка…</div>',
+    sec: '<div class="empty">Загрузка…</div>' };
+  ($('#st-body') as HTMLElement)!.innerHTML = map[t] || '';
+  if (t === 'stats') loadSiteStats();
+  if (t === 'load') loadSiteLoad();
+  if (t === 'health') loadSiteHealth();
+  if (t === 'conf') loadSiteConf('nginx');
+  if (t === 'sec') loadSiteSecurity();
+  if (t === 'logs') ($('#st-body') as HTMLElement)!.innerHTML =
+    '<div class="row" style="margin-bottom:10px">' +
+    '<button class="btn sm" onclick="siteLog(\'access\')">Access-лог</button>' +
+    '<button class="btn sm" onclick="siteLog(\'error\')">Error-лог</button>' +
+    '<span class="spacer"></span><span class="muted" style="font-size:12.5px">последние 300 строк</span>' +
+    '<button class="btn sm danger" onclick="logsClear(\'access\')">Очистить access</button>' +
+    '<button class="btn sm danger" onclick="logsClear(\'error\')">Очистить error</button></div>' +
+    '<div class="logbox" id="st-log">Выберите журнал…</div>';
+}
+
+function stPhpChanged(): void {
+  const v = ($('#st-php') as HTMLSelectElement).value;
+  api('/api/php').then((p) => {
+    const mods = p.versions[v] || [];
+    ($('#st-mods') as HTMLElement)!.innerHTML = mods.map((m: string) =>
+      '<label class="check" style="margin:4px 0"><input type="checkbox" class="st-mod" value="' + esc(m) + '"> ' + esc(m) + '</label>').join('');
+  }).catch(() => {});
+}
+
+async function siteSave(): Promise<void> {
+  const s = site as Site;
+  const body: any = {
+    id: s.id,
+    www: $('#st-www') ? ($('#st-www') as HTMLInputElement).checked : undefined,
+    webserver: $('#st-ws') ? ($('#st-ws') as HTMLSelectElement).value : s.webserver,
+    enabled: $('#st-enabled') ? ($('#st-enabled') as HTMLInputElement).checked : s.enabled,
+    php: $('#st-php') ? ($('#st-php') as HTMLSelectElement).value : s.php,
+    php_modules: $('#st-mods') ?
+      Array.from(document.querySelectorAll('.st-mod:checked')).map((c) => (c as HTMLInputElement).value) : (s.php_modules || []),
+    fpm: $('#st-fpm-mc') ? { pm: ($('#st-fpm-pm') as HTMLSelectElement).value, max_children: +($('#st-fpm-mc') as HTMLInputElement).value,
+      start_servers: +($('#st-fpm-ss') as HTMLInputElement).value, min_spare: s.fpm ? s.fpm.min_spare : 2,
+      max_spare: s.fpm ? s.fpm.max_spare : 5 } : undefined,
+    node: $('#st-node-en') ? { enabled: ($('#st-node-en') as HTMLInputElement).checked,
+      version: ($('#st-node-v') as HTMLSelectElement).value, port: +($('#st-node-p') as HTMLInputElement).value,
+      script: ($('#st-node-s') as HTMLInputElement).value } : undefined,
+    perf: {
+      gzip: $('#st-perf-gzip') ? ($('#st-perf-gzip') as HTMLInputElement).checked : undefined,
+      static_cache: $('#st-perf-cache') ? ($('#st-perf-cache') as HTMLInputElement).checked : undefined,
+      hsts: $('#st-perf-hsts') ? ($('#st-perf-hsts') as HTMLInputElement).checked : undefined,
+      http2: $('#st-perf-h2') ? ($('#st-perf-h2') as HTMLInputElement).checked : undefined },
+    snippets: {
+      www_redirect: $('#st-snip-www') ? ($('#st-snip-www') as HTMLInputElement).checked : undefined,
+      admin_ip: $('#st-snip-admin') ? ($('#st-snip-admin') as HTMLInputElement).value : undefined,
+      upload_size: $('#st-snip-up') ? ($('#st-snip-up') as HTMLSelectElement).value : undefined },
+  };
+  try { const r = await api('/api/sites/update', { method: 'POST', body });
+    toast(esc(r.message)); closeModal(); go('sites'); } catch (e) { toastErr(e); }
+}
+
+/* вкладка «Основное» карточки сайта */
+function stMainHtml(s: Site): string {
+  const perf = s.perf || {};
+  const snip = s.snippets || {};
+  const isNode = s.webserver === 'nginx+node';
+  const hasSsl = s.ssl && s.ssl.kind !== 'none';
+  return '<div class="field"><label>Домен</label><input type="text" value="' + esc(s.domain) + '" disabled></div>' +
+    '<div class="field"><label>Корневая папка</label><input type="text" value="' + esc(s.docroot) + '" disabled></div>' +
+    '<div class="field"><label>Веб-сервер</label><select id="st-ws">' +
+      WEBSERVERS.map((w) => '<option value="' + w[0] + '"' + (s.webserver === w[0] ? ' selected' : '') + '>' + w[1] + '</option>').join('') + '</select></div>' +
+    '<label class="check"><input type="checkbox" id="st-enabled"' + (s.enabled ? ' checked' : '') + '> Сайт включён (при выключении показывает заглушку «Сайт отключён»)</label>' +
+    '<label class="check"><input type="checkbox" id="st-www"' + (s.www ? ' checked' : '') + '> Обслуживать www.домен — имя www войдёт в server_name и будет выпрашиваться в сертификате SSL</label>' +
+    '<div class="row"><button class="btn" onclick="openSiteFiles()">' + icon('folder', 15) + ' Файлы сайта</button>' +
+    '<button class="btn" onclick="wizardSubdomain(' + s.id + ', \'' + esc(s.domain) + '\')">' + icon('plus', 15) + ' Добавить поддомен</button>' +
+    '<button class="btn" onclick="openSite(\'' + esc(s.domain) + '\')">' + icon('ext', 15) + ' Открыть сайт</button></div>' +
+    '<div class="row" style="margin-top:14px">' +
+    '<button class="btn ' + (s.maintenance ? 'danger' : '') + '" onclick="toggleMaintenance()">' + icon('wrench', 15) +
+    (s.maintenance ? 'Выключить обслуживание' : 'Режим обслуживания (503)') + '</button>' +
+    '<button class="btn" onclick="siteAuditDlg()">' + icon('shield', 15) + ' Проверка здоровья сайта</button></div>' +
+    (s.maintenance ? '<div class="notice warn" style="margin-top:10px">Сайт сейчас отдаёт HTTP 503 и страницу «ведутся работы».</div>' : '') +
+    '<label style="margin-top:16px">Производительность (настройки nginx)</label>' +
+    '<label class="check"><input type="checkbox" id="st-perf-gzip"' + (perf.gzip ? ' checked' : '') + '> Сжатие ответов (gzip) — страницы отдаются быстрее</label>' +
+    (isNode ? '' :
+    '<label class="check"><input type="checkbox" id="st-perf-cache"' + (perf.static_cache ? ' checked' : '') + '> Кэш картинок и стилей в браузере (30 дней)</label>') +
+    (hasSsl ?
+    '<label class="check"><input type="checkbox" id="st-perf-hsts"' + (perf.hsts ? ' checked' : '') + '> HSTS — браузер будет ходить на сайт только по HTTPS</label>' +
+    '<label class="check"><input type="checkbox" id="st-perf-h2"' + (perf.http2 ? ' checked' : '') + '> HTTP/2 — ускорение загрузки при HTTPS</label>' : '') +
+    '<div class="faint" style="font-size:11.5px;margin-top:4px">Применится после «Сохранить». Конфиг проверяется nginx -t — при ошибке панель откатит изменения сама.</div>' +
+    '<label style="margin-top:16px">Библиотека сниппетов (nginx)</label>' +
+    '<label class="check"><input type="checkbox" id="st-snip-www"' + (snip.www_redirect ? ' checked' : '') + '> Редирект www → без www</label>' +
+    '<div class="field" style="margin:6px 0 0"><label>Закрыть /admin по IP (через запятую, пусто — выключено)</label>' +
+    '<input type="text" id="st-snip-admin" class="mono" value="' + esc(snip.admin_ip || '') + '" placeholder="1.2.3.4, 5.6.7.8"></div>' +
+    '<div class="field" style="margin:6px 0 0"><label>Максимум загрузки файлов (client_max_body_size)</label>' +
+    '<select id="st-snip-up">' +
+    ['', '64m', '128m', '256m', '512m', '1g', '2g'].map((v) =>
+      '<option value="' + v + '"' + ((snip.upload_size || '') === v ? ' selected' : '') + '>' +
+      (v || 'по умолчанию (64m)') + '</option>').join('') + '</select></div>';
+}
+
+async function toggleMaintenance(): Promise<void> {
+  const s = site as Site;
+  try {
+    const r = await api('/api/sites/maintenance', { method: 'POST',
+      body: { id: s.id, enabled: !s.maintenance } });
+    toast(esc(r.message));
+    const d = await api('/api/sites');
+    site = d.sites.find((x: Site) => x.id === s.id);
+    stMain = stMainHtml(site as Site);
+    stTab('main');
+  } catch (e) { toastErr(e); }
+}
+
+function openSite(domain?: string): void {
+  const d = domain || (site && site.domain);
+  if (d) window.open('http://' + d, '_blank');
+}
+
+function nodeAct(action: string): void {
+  const id = (site as Site).id;
+  const call = action === 'npm' ? '/api/sites/npm' : '/api/sites/node';
+  api(call, { method: 'POST', body: { id, action } }).then((r) => toast(esc(r.message))).catch((e) => toastErr(e));
+}
+
+async function nodeLogsDlg(): Promise<void> {
+  try {
+    const d = await api('/api/site/' + (site as Site).id + '/node_logs');
+    modal('Журнал Node.js: ' + esc((site as Site).domain),
+      '<div class="logbox">' + esc((d.lines || []).join('\n')) + '</div>',
+      '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+  } catch (e) { toastErr(e); }
+}
+
+/* ---------- заглушка для IP-адреса сервера ---------- */
+async function defaultSiteDlg(): Promise<void> {
+  let d: any;
+  try { d = await api('/api/default-site'); } catch (e) { toastErr(e); return; }
+  modal('Заглушка для IP-адреса сервера',
+    '<div class="notice info">Эта страница открывается при заходе на <b>IP-адрес сервера</b> ' +
+    'по http и https. Она отдаётся с кодом <b>404</b> и закрыта от индексации ' +
+    '(X-Robots-Tag + meta robots) — поисковики и сканеры её не сохранят. ' +
+    'HTML и стили можно менять свободно.</div>' +
+    '<div class="field"><label>HTML-разметка страницы (placeholder.html)</label>' +
+    '<textarea id="ds-content" class="mono" rows="18" spellcheck="false" ' +
+    'style="width:100%;resize:vertical;white-space:pre;font-size:12.5px">' +
+    esc(d.content) + '</textarea></div>',
+    '<button class="btn primary" onclick="defaultSiteSave()">' + icon('check', 15) + ' Сохранить</button>' +
+    '<button class="btn" onclick="closeModal()">Закрыть</button>', 2);
+}
+
+async function defaultSiteSave(): Promise<void> {
+  try {
+    const r = await api('/api/default-site', { method: 'POST',
+      body: { content: ($('#ds-content') as HTMLTextAreaElement).value } });
+    toast(esc(r.message)); closeModal();
+  } catch (e) { toastErr(e); }
+}
+
+/* ---------- чек-лист здоровья сайта ---------- */
+async function siteAuditDlg(): Promise<void> {
+  modal('Проверка здоровья сайта',
+    '<div class="empty">Проверяю: HTTPS, редирект, сжатие, кэш, PHP…</div>',
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+  let r: any;
+  try { r = await api('/api/site/' + (site as Site).id + '/audit'); }
+  catch (e) { closeModal(); toastErr(e); return; }
+  const pill = (st: string) => st === 'ok' ? '<span class="pill ok">ок</span>' :
+    st === 'warn' ? '<span class="pill warn">внимание</span>' :
+    st === 'fail' ? '<span class="pill err">исправить</span>' :
+    '<span class="pill gray">—</span>';
+  const rows = r.checks.map((c: any) =>
+    '<div class="row" style="align-items:flex-start;gap:12px;padding:9px 0;border-bottom:1px solid var(--border)">' +
+    '<div style="width:96px;flex-shrink:0">' + pill(c.status) + '</div>' +
+    '<div style="flex:1"><b>' + esc(c.name) + '</b>' +
+    (c.detail ? '<div class="muted" style="font-size:12.5px">' + esc(c.detail) + '</div>' : '') +
+    (c.hint ? '<div class="notice info" style="margin-top:6px;font-size:12.5px">' + esc(c.hint) + '</div>' : '') +
+    '</div></div>').join('');
+  const scoreCls = r.score >= 80 ? 'ok' : r.score >= 50 ? 'warn' : 'err';
+  modal('Проверка здоровья: ' + esc((site as Site).domain),
+    '<div class="row" style="align-items:center;gap:12px;margin-bottom:6px">' +
+    '<span class="pill ' + scoreCls + '" style="font-size:14px">оценка: ' + r.score + '/100</span>' +
+    (r.demo ? '<span class="pill gray">демо-режим</span>' : '') +
+    '<span class="muted" style="font-size:12.5px">проверено: ' + r.checks.length + '</span></div>' + rows,
+    '<button class="btn primary" onclick="closeModal()">Понятно</button>', true);
+}
+
+async function sslIssue(kind: string): Promise<void> {
+  if (kind === 'letsencrypt') {
+    let dns: any = null;
+    try { dns = await api('/api/site/' + (site as Site).id + '/dns_check'); }
+    catch (e) {}
+    if (dns && !dns.dns_ok) {
+      const serverIp = esc((dns.server_ips || []).join(', ') || 'см. «Обзор»');
+      confirmDlg('Домен ещё не указывает на сервер',
+        'A-запись домена <b>' + esc((site as Site).domain) + '</b> пока не указывает ' +
+        'на IP этого сервера (' + serverIp + '). Выпуск Let\'s Encrypt почти наверняка ' +
+        'провалится. Сначала настройте DNS у регистратора (изменения применяются ' +
+        'до нескольких часов). Всё равно попробовать?',
+        () => sslIssueGo(kind), false);
+      return;
+    }
+  }
+  sslIssueGo(kind);
+}
+
+function sslIssueGo(kind: string): void {
+  const email = kind === 'letsencrypt' ? (prompt('E-mail для уведомлений Let\'s Encrypt (можно пропустить):') || '') : '';
+  api('/api/sites/ssl', { method: 'POST', body: { id: (site as Site).id, kind, email } })
+    .then((r) => { toast(esc(r.message)); return api('/api/sites'); })
+    .then((d) => { site = d.sites.find((x: Site) => x.id === (site as Site).id);
+      stSsl = sslBlockHtml(site as Site); stTab('ssl'); })
+    .catch((e) => toastErr(e));
+}
+
+function sslDel(): void {
+  confirmDlg('Удалить сертификат', 'Сертификат сайта <b>' + esc((site as Site).domain) + '</b> будет удалён.',
+    async () => {
+      try { const r = await api('/api/sites/ssl_delete', { method: 'POST', body: { id: (site as Site).id } });
+        toast(esc(r.message));
+        const d = await api('/api/sites');
+        site = d.sites.find((x: Site) => x.id === (site as Site).id);
+        stSsl = sslBlockHtml(site as Site); stTab('ssl');
+      } catch (e) { toastErr(e); }
+    });
+}
+
+/* ---------- вкладка: статистика ---------- */
+async function loadSiteStats(): Promise<void> {
+  try {
+    const d = await api('/api/site/' + (site as Site).id + '/stats');
+    const st = d.stats;
+    const labels = st.series.map((x: any) => x.day.slice(8) + '.' + x.day.slice(5, 7));
+    const html =
+      '<div class="grid g4" style="margin-bottom:12px">' +
+      statCard('activity', 'c1', st.requests.toLocaleString('ru-RU'), 'Запросов всего', null) +
+      statCard('up', 'c2', fmtSize(st.bytes), 'Трафик', null) +
+      statCard('globe', 'c3', st.top_ips.length, 'Активных IP (топ-10)', null) +
+      statCard('file', 'c4', (st.codes.find((c: any[]) => c[0] === '404') || [0, 0])[1] + ' / ' + (st.codes.find((c: any[]) => c[0] === '500') || [0, 0])[1], 'Ошибок 404 / 500', null) +
+      '</div><canvas id="st-chart" class="chart"></canvas>' +
+      '<div class="split" style="margin-top:12px"><div><b class="muted" style="font-size:12.5px">Популярные страницы</b>' +
+      (st.top_urls.map((u: any[]) => '<div class="row" style="justify-content:space-between;font-size:12.5px;padding:3px 0">' +
+        '<span class="mono">' + esc(u[0]) + '</span><span class="pill gray">' + u[1] + '</span></div>').join('') || '<div class="empty">нет данных</div>') +
+      '</div><div><b class="muted" style="font-size:12.5px">Активные IP</b>' +
+      (st.top_ips.map((u: any[]) => '<div class="row" style="justify-content:space-between;font-size:12.5px;padding:3px 0">' +
+        '<span class="mono">' + esc(u[0]) + '</span><span class="pill gray">' + u[1] + '</span></div>').join('') || '<div class="empty">нет данных</div>') +
+      '</div></div>';
+    ($('#st-body') as HTMLElement)!.innerHTML = html;
+    drawLine(document.getElementById('st-chart') as HTMLCanvasElement,
+      [{ data: st.series.map((x: any) => x.requests), color: cssVar('--primary'), fill: true },
+       { data: st.series.map((x: any) => x.bytes / 1024 / 1024), color: cssVar('--info') }],
+      { labels: [labels[0], labels[labels.length - 1]] });
+  } catch (e: any) { ($('#st-body') as HTMLElement)!.innerHTML = '<div class="empty">нет данных: ' + esc(e.message) + '</div>'; }
+}
+
+/* ---------- вкладка: нагрузка ---------- */
+async function loadSiteLoad(): Promise<void> {
+  try {
+    const d = await api('/api/site/' + (site as Site).id + '/load');
+    const l = d.load;
+    const t = l.total || { cpu: 0, mem_mb: 0, php_workers: 0 };
+    let html =
+      '<div class="grid g4" style="margin-bottom:12px">' +
+      statCard('cpu', 'c1', t.cpu + '%', 'CPU сайта (PHP + Node)', Math.min(100, t.cpu), t.cpu > 80 ? 'err' : t.cpu > 50 ? 'warn' : 'ok') +
+      statCard('server', 'c2', fmtSize(t.mem_mb * 1024 * 1024), 'Память сайта', null) +
+      statCard('gear', 'c3', t.php_workers, 'PHP-воркеров', null) +
+      statCard('activity', 'c4', l.node ? 'работает' : '—', 'Node.js', null) +
+      '</div>';
+    html += '<div class="card" style="margin:0"><div class="card-h"><span class="card-t">Процессы PHP-FPM пула</span></div>';
+    if (l.php.length) {
+      html += '<div class="twrap"><table><thead><tr><th>PID</th><th>CPU %</th><th>Память</th><th>Время работы</th></tr></thead><tbody>' +
+        l.php.map((p: any) => '<tr><td class="mono">' + p.pid + '</td><td>' + p.cpu + '</td><td>' + p.mem_mb + ' МБ</td><td class="mono">' + esc(p.time) + '</td></tr>').join('') +
+        '</tbody></table></div>';
+    } else html += '<div class="empty">воркеров нет (сайт без PHP или нет запросов)</div>';
+    html += '</div>';
+    ($('#st-body') as HTMLElement)!.innerHTML = html;
+  } catch (e: any) { ($('#st-body') as HTMLElement)!.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+
+/* ---------- вкладка: живучесть ---------- */
+async function loadSiteHealth(): Promise<void> {
+  try {
+    const d = await api('/api/site/' + (site as Site).id + '/health');
+    const h = d.report;
+    let html = '<div class="grid g4" style="margin-bottom:12px">' +
+      statCard('activity', 'c1', h.uptime_24h != null ? h.uptime_24h + '%' : '—', 'Доступность 24 ч', h.uptime_24h || 0,
+        h.uptime_24h >= 99.5 ? 'ok' : h.uptime_24h >= 97 ? 'warn' : 'err') +
+      statCard('stat', 'c2', h.uptime_7d != null ? h.uptime_7d + '%' : '—', 'Доступность 7 дней', h.uptime_7d || 0,
+        h.uptime_7d >= 99.5 ? 'ok' : h.uptime_7d >= 97 ? 'warn' : 'err') +
+      statCard('clock', 'c3', (h.avg_ms || 0) + ' мс', 'Средний ответ', null) +
+      statCard('shield', 'c4', (h.incidents || []).length, 'Инцидентов', null) +
+      '</div><canvas id="st-health" class="chart sm"></canvas>' +
+      '<div class="card" style="margin:12px 0 0"><div class="card-h"><span class="card-t">Инциденты</span></div>';
+    if ((h.incidents || []).length) {
+      html += '<div class="twrap"><table><thead><tr><th>Начало</th><th>Конец</th></tr></thead><tbody>' +
+        h.incidents.map((i: any) => '<tr><td class="mono">' + esc(fmtDate(i.start)) + '</td><td class="mono">' +
+          (i.end ? esc(fmtDate(i.end)) : '<span class="pill err">продолжается</span>') + '</td></tr>').join('') +
+        '</tbody></table></div>';
+    } else html += '<div class="empty">инцидентов не зафиксировано</div>';
+    html += '</div>';
+    ($('#st-body') as HTMLElement)!.innerHTML = html;
+    drawUptime(document.getElementById('st-health') as HTMLCanvasElement, h.series || []);
+  } catch (e: any) { ($('#st-body') as HTMLElement)!.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+
+/* ---------- вкладка: конфиги ---------- */
+async function loadSiteConf(kind: string): Promise<void> {
+  const s = site as Site;
+  const tabs: [string, string][] = [
+    ['nginx', 'nginx.conf'], ['apache', 'apache.conf'],
+    ['fpm', 'пул FPM'], ['php', 'php.ini сайта']];
+  const html = '<div class="row" style="margin-bottom:10px">' +
+    tabs.filter((t) => t[0] !== 'apache' || s.webserver.includes('apache')).map((t) =>
+      '<button class="btn sm' + (t[0] === kind ? ' primary' : '') + '" onclick="loadSiteConf(\'' + t[0] + '\')">' + t[1] + '</button>').join('') +
+    '</div><div class="notice info" style="margin-bottom:10px">Перед сохранением панель проверяет конфиг (nginx -t / apachectl configtest / правила php.ini). При ошибке файл откатывается.</div>' +
+    '<div id="conf-editor"><div class="empty">Загрузка…</div></div>' +
+    '<div class="row" style="margin-top:10px"><button class="btn primary" onclick="saveSiteConf(\'' + kind + '\')">' +
+    icon('check', 14) + ' Сохранить и применить</button></div>';
+  ($('#st-body') as HTMLElement)!.innerHTML = html;
+  try {
+    const d = await api('/api/site/' + s.id + '/conf?kind=' + kind);
+    confPath = d.path;
+    ($('#conf-editor') as HTMLElement)!.innerHTML =
+      '<div class="faint mono" style="font-size:11.5px;margin-bottom:6px">' + esc(d.path) + '</div>' +
+      '<div id="conf-wrap"></div>';
+    confApi = mountCodeEditor(document.getElementById('conf-wrap')!,
+      d.content || '', prismLangFromKind(kind));
+  } catch (e: any) {
+    confApi = null;  // без этого «Сохранить» перезапишет конфиг старым содержимым
+    ($('#conf-editor') as HTMLElement)!.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+  }
+}
+
+async function saveSiteConf(kind: string): Promise<void> {
+  if (!confApi) { toast('Редактор не загружен — сохранение отменено', 'warn'); return; }
+  const content = confApi.get();
+  try {
+    const r = await api('/api/site/' + (site as Site).id + '/conf', { method: 'POST',
+      body: { kind, content } });
+    toast(esc(r.message));
+  } catch (e) { toastErr(e); }
+}
+
+/* ---------- вкладка: фильтры ---------- */
+async function loadSiteSecurity(): Promise<void> {
+  try {
+    const d = await api('/api/site/' + (site as Site).id + '/security');
+    const secData = d.security;
+    secCountries = d.countries || {};
+    const geoOpts = Object.keys(secCountries).map((c) =>
+      '<option value="' + c + '">' + c + ' — ' + esc(secCountries[c]) + '</option>').join('');
+    const chips = (secData.geo_countries || []).map((c: string) =>
+      '<span class="chip">' + c + ' · ' + esc(secCountries[c] || '') +
+      '<button onclick="secRemoveCountry(\'' + c + '\')">×</button></span>').join('');
+    const ipChips = (list: string[], kind: string) => (list || []).map((ip) =>
+      '<span class="chip mono">' + esc(ip) + '<button onclick="secRemoveIp(\'' + kind + '\', \'' + ip + '\')">×</button></span>').join('');
+    ($('#st-body') as HTMLElement)!.innerHTML =
+      '<div class="notice info">Правила применяются к сайту на уровне nginx: гео-страны (GeoIP2), списки IP, блокировка ботов и сканеров, базовый WAF (SQLi/XSS/скрытые файлы), ограничение частоты запросов.</div>' +
+      '<label>Доступ по странам</label>' +
+      '<div class="row"><select id="sec-geo-mode">' +
+      '<option value="off"' + (secData.geo_mode === 'off' ? ' selected' : '') + '>— все страны —</option>' +
+      '<option value="allow"' + (secData.geo_mode === 'allow' ? ' selected' : '') + '>разрешить только выбранные</option>' +
+      '<option value="deny"' + (secData.geo_mode === 'deny' ? ' selected' : '') + '>запретить выбранные</option></select>' +
+      '<div style="flex:1;min-width:200px"><select id="sec-geo-country" onchange="secAddCountry()">' +
+      '<option value="">+ добавить страну…</option>' + geoOpts + '</select></div></div>' +
+      '<div class="chips" id="sec-geo-chips" style="margin-top:8px">' + (chips || '<span class="faint" style="font-size:12.5px">страны не выбраны</span>') + '</div>' +
+      (d.geo_available ? '' : '<div class="notice warn" style="margin-top:10px">Модуль nginx geoip2 или база стран GeoLite2 не установлены. Установите в разделе «Установка ПО» (группа «SSL и безопасность») или прямо здесь: <button class="btn sm" style="margin:4px 0 0 8px" onclick="secGeoInstall()">Установить GeoIP2</button></div>') +
+      '<label style="margin-top:14px">Запрещённые IP (чёрный список)</label>' +
+      '<div class="row"><input type="text" id="sec-ip-deny" placeholder="например, 45.155.205.11" style="flex:1">' +
+      '<button class="btn sm" onclick="secAddIp(\'deny\')">Добавить</button></div>' +
+      '<div class="chips" id="sec-deny-chips" style="margin-top:8px">' + (ipChips(secData.ip_deny, 'deny') || '<span class="faint" style="font-size:12.5px">пусто</span>') + '</div>' +
+      '<label style="margin-top:14px">Разрешённые IP (белый список; при непустом — только они)</label>' +
+      '<div class="row"><input type="text" id="sec-ip-allow" placeholder="например, 10.0.0.5" style="flex:1">' +
+      '<button class="btn sm" onclick="secAddIp(\'allow\')">Добавить</button></div>' +
+      '<div class="chips" id="sec-allow-chips" style="margin-top:8px">' + (ipChips(secData.ip_allow, 'allow') || '<span class="faint" style="font-size:12.5px">пусто</span>') + '</div>' +
+      '<div class="row" style="margin-top:14px">' +
+      '<label class="check" style="margin:0"><input type="checkbox" id="sec-bots"' + (secData.block_bots ? ' checked' : '') + '> Блокировать ботов и сканеры</label>' +
+      '<label class="check" style="margin:0"><input type="checkbox" id="sec-waf"' + (secData.waf ? ' checked' : '') + '> Включить WAF (SQLi / XSS / скрытые файлы)</label></div>' +
+      '<label style="margin-top:14px">Ограничение частоты запросов (защита от DDoS)</label>' +
+      '<div class="row"><div class="field" style="flex:1"><label style="margin-top:0">Запросов/сек (0 = выкл.)</label>' +
+      '<input type="number" id="sec-rate" value="' + (secData.rate_limit || 0) + '"></div>' +
+      '<div class="field" style="flex:1"><label style="margin-top:0">Всплеск (burst)</label>' +
+      '<input type="number" id="sec-burst" value="' + (secData.rate_burst || 20) + '"></div></div>' +
+      '<div class="row" style="margin-top:14px"><button class="btn primary" onclick="secSave()">' + icon('check', 14) + ' Применить фильтры</button></div>';
+    sec = secData;
+  } catch (e: any) { ($('#st-body') as HTMLElement)!.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+
+/* Установка GeoIP2 (модуль + база стран) прямо из вкладки «Безопасность» */
+async function secGeoInstall(): Promise<void> {
+  try {
+    const r = await api('/api/software/install',
+      { method: 'POST', body: { name: 'geoip2' } });
+    toast(esc(r.message));
+  } catch (e) { toastErr(e); }
+}
+
+function secAddCountry(): void {
+  const sel = $('#sec-geo-country') as HTMLSelectElement;
+  if (!sel.value) return;
+  const c = sel.value;
+  if (!sec.geo_countries.includes(c)) sec.geo_countries.push(c);
+  sel.value = '';
+  loadSiteSecurity();
+}
+
+function secRemoveCountry(c: string): void {
+  sec.geo_countries = sec.geo_countries.filter((x: string) => x !== c);
+  loadSiteSecurity();
+}
+
+function secAddIp(kind: string): void {
+  const input = $(kind === 'deny' ? '#sec-ip-deny' : '#sec-ip-allow') as HTMLInputElement;
+  const ip = input.value.trim();
+  if (!ip) return;
+  const list = sec['ip_' + kind] || [];
+  if (!list.includes(ip)) list.push(ip);
+  sec['ip_' + kind] = list;
+  loadSiteSecurity();
+}
+
+function secRemoveIp(kind: string, ip: string): void {
+  sec['ip_' + kind] = (sec['ip_' + kind] || []).filter((x: string) => x !== ip);
+  loadSiteSecurity();
+}
+
+async function secSave(): Promise<void> {
+  const secBody = {
+    geo_mode: ($('#sec-geo-mode') as HTMLSelectElement).value,
+    geo_countries: sec.geo_countries,
+    ip_allow: sec.ip_allow || [],
+    ip_deny: sec.ip_deny || [],
+    block_bots: ($('#sec-bots') as HTMLInputElement).checked,
+    waf: ($('#sec-waf') as HTMLInputElement).checked,
+    rate_limit: +($('#sec-rate') as HTMLInputElement).value,
+    rate_burst: +($('#sec-burst') as HTMLInputElement).value,
+  };
+  try {
+    const r = await api('/api/sites/security', { method: 'POST',
+      body: { id: (site as Site).id, security: secBody } });
+    toast(esc(r.message));
+  } catch (e) { toastErr(e); }
+}
+
+/* ---------- вкладка: логи с фильтрами ---------- */
+async function siteLog(kind: string): Promise<void> {
+  logKind = kind;
+  let d: any;
+  try { d = await api('/api/site/' + (site as Site).id + '/logs?type=' + kind); }
+  catch (e) { toastErr(e); return; }
+  renderLogBox(d, kind);
+  const fb = document.getElementById('log-filters');
+  if (!fb) {
+    ($('#st-body') as HTMLElement)!.insertAdjacentHTML('afterbegin',
+      '<div class="filter-bar" id="log-filters">' +
+      '<div class="f grow"><label style="margin:0 0 4px">Поиск по тексту</label><input type="text" id="lf-q" oninput="applyLogFilters()" placeholder="подстрока в строке лога"></div>' +
+      '<div class="f"><label style="margin:0 0 4px">Код</label><select id="lf-code" onchange="applyLogFilters()"><option value="">все</option>' +
+      ['200', '301', '302', '304', '403', '404', '429', '500', '502', '503'].map((c) => '<option>' + c + '</option>').join('') + '</select></div>' +
+      '<div class="f"><label style="margin:0 0 4px">IP</label><input type="text" id="lf-ip" oninput="applyLogFilters()" placeholder="1.2.3.4"></div>' +
+      '<div class="f"><label style="margin:0 0 4px">URL содержит</label><input type="text" id="lf-url" oninput="applyLogFilters()" placeholder="/wp-admin"></div>' +
+      '<div class="f"><label style="margin:0 0 4px">С даты</label><input type="date" id="lf-since" onchange="applyLogFilters()"></div>' +
+      '<div class="f"><label style="margin:0 0 4px">По дату</label><input type="date" id="lf-until" onchange="applyLogFilters()"></div>' +
+      '<label class="check" style="margin:0"><input type="checkbox" id="lf-err" onchange="applyLogFilters()"> только ошибки (4xx/5xx)</label>' +
+      '<label class="check" style="margin:0"><input type="checkbox" id="lf-bots" onchange="applyLogFilters()"> только боты</label>' +
+      '<button class="btn sm" onclick="siteLogRefresh()">' + icon('refresh', 13) + ' Обновить</button>' +
+      '</div>');
+  }
+}
+
+function siteLogRefresh(): void { siteLog(logKind); }
+
+function renderLogBox(d: any, kind: string): void {
+  const box = document.getElementById('st-log');
+  if (!box) return;
+  const lines: string[] = d.lines || [];
+  box.innerHTML = lines.length ? lines.map((l) => {
+    if (/\[error\]| 500 | 502 | 503 | 40[0-9] /.test(l)) {
+      if (kind === 'error' || / 5\d\d /.test(l)) return '<span class="le">' + esc(l) + '</span>';
+      if (/ 40\d /.test(l)) return '<span class="lw">' + esc(l) + '</span>';
+    }
+    return esc(l);
+  }).join('\n') : 'пусто';
+  box.scrollTop = box.scrollHeight;
+  const meta = document.getElementById('log-meta');
+  if (meta) meta.textContent = 'показано ' + lines.length + ' из ' + (d.total || 0) + ' строк';
+}
+
+async function applyLogFilters(): Promise<void> {
+  const p = new URLSearchParams();
+  p.set('type', logKind || 'access');
+  const chk = (id: string) => { const el = document.getElementById(id) as HTMLInputElement; return el && el.checked; };
+  if ($('#lf-q') && ($('#lf-q') as HTMLInputElement).value) p.set('q', ($('#lf-q') as HTMLInputElement).value);
+  if ($('#lf-code') && ($('#lf-code') as HTMLSelectElement).value) p.set('code', ($('#lf-code') as HTMLSelectElement).value);
+  if ($('#lf-ip') && ($('#lf-ip') as HTMLInputElement).value) p.set('ip', ($('#lf-ip') as HTMLInputElement).value);
+  if ($('#lf-url') && ($('#lf-url') as HTMLInputElement).value) p.set('url', ($('#lf-url') as HTMLInputElement).value);
+  if ($('#lf-since') && ($('#lf-since') as HTMLInputElement).value) p.set('since', ($('#lf-since') as HTMLInputElement).value);
+  if ($('#lf-until') && ($('#lf-until') as HTMLInputElement).value) p.set('until', ($('#lf-until') as HTMLInputElement).value);
+  if (chk('lf-err')) p.set('errors_only', '1');
+  if (chk('lf-bots')) p.set('bots_only', '1');
+  try {
+    const d = await api('/api/site/' + (site as Site).id + '/logs?' + p.toString());
+    renderLogBox(d, logKind || 'access');
+  } catch (e) { toastErr(e); }
+}
+
+function openSiteFiles(): void {
+  const dom = (site as Site).domain;
+  void dom;
+  closeModal();
+  go('files');
+  setTimeout(() => { fmGoTo((site as Site).docroot || ''); }, 300);
+}
+
+/* ---------- очистка журналов сайта ---------- */
+function logsClear(kind: string): void {
+  confirmDlg('Очистить журнал',
+    'Все записи журнала «' + (kind === 'access' ? 'Access' : 'Error') + '» сайта ' +
+    '<b>' + esc((site as Site).domain) + '</b> будут удалены. Это безопасно — ' +
+    'журнал начнёт заполняться заново.', async () => {
+    try {
+      const r = await api('/api/site/' + (site as Site).id + '/logs_clear',
+        { method: 'POST', body: { kind } });
+      toast(esc(r.message)); siteLog(kind);
+    } catch (e) { toastErr(e); }
+  }, false);
+}
+
+/* ---------- подбор лимитов FPM ---------- */
+async function stFpmReco(): Promise<void> {
+  try {
+    const r = await api('/api/site/' + (site as Site).id + '/fpm_reco');
+    const mc = document.getElementById('st-fpm-mc') as HTMLInputElement | null;
+    const ss = document.getElementById('st-fpm-ss') as HTMLInputElement | null;
+    if (mc) mc.value = r.max_children;
+    if (ss) ss.value = r.start_servers;
+    const el = document.getElementById('st-fpm-reco');
+    if (el) el.textContent = 'Рекомендация: max_children ' + r.max_children;
+    toast('Рекомендация: max_children = ' + r.max_children + ' (' + r.note + ')');
+  } catch (e) { toastErr(e); }
+}
+
+/* ---------- полная диагностика DNS ---------- */
+async function siteDnsFullDlg(): Promise<void> {
+  modal('Диагностика DNS: ' + esc((site as Site).domain),
+    '<div class="empty">Смотрю записи…</div>',
+    '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+  let r: any;
+  try { r = await api('/api/site/' + (site as Site).id + '/dns_full'); }
+  catch (e) { closeModal(); toastErr(e); return; }
+  const pill = (ok: boolean) => ok ? '<span class="pill ok">ок</span>'
+    : '<span class="pill warn">проверить</span>';
+  const arr = (a: string[]) => (a && a.length ? a.join(', ') : '—');
+  const kv = (name: string, ok: boolean, v: string) => '<div class="kv"><b>' + name + ' ' + pill(ok) +
+    '</b><span class="mono" style="word-break:break-all">' + esc(v) + '</span></div>';
+  modal('Диагностика DNS: ' + esc(r.domain),
+    '<div class="notice info">Записи настраиваются у регистратора домена. ' +
+    'A-записи должны указывать на IP сервера: <b class="mono">' +
+    esc((r.server_ips || []).join(', ')) + '</b>. Изменения DNS применяются до нескольких часов.</div>' +
+    kv('A (домен → IP)', r.a.ok, arr(r.a.current)) +
+    kv('A (www)', r.www.ok, arr(r.www.current)) +
+    kv('AAAA (IPv6)', true, arr(r.aaaa.current)) +
+    kv('MX (почта)', true, arr(r.mx.current)) +
+    kv('NS (серверы имён)', true, arr(r.ns.current)) +
+    kv('SPF', r.spf.ok, arr(r.spf.current)) +
+    (!r.spf.ok ? '<div class="notice warn" style="margin-top:8px">SPF-записи нет — письма с сайта могут попадать в спам. ' +
+      'Рекомендуемая запись: <b class="mono">' + esc(r.spf.recommended) + '</b> (TXT, имя ' + esc(r.domain) + ')</div>' : '') +
+    (r.demo ? '<div class="notice info">демо-данные</div>' : ''),
+    '<button class="btn primary" onclick="closeModal()">Понятно</button>', true);
+}
+
+/* ---------- импорт сайта архивом ---------- */
+function importArchiveDlg(): void {
+  modal('Импорт сайта архивом',
+    '<div class="notice info">Переезд с другого хостинга: загрузите zip с файлами сайта ' +
+    'и при необходимости дамп базы (.sql / .sql.gz / .zip). Файлы распакуются в папку сайта, ' +
+    'дамп импортируется в указанную базу. Если сайта ещё нет — создадим автоматически.</div>' +
+    '<div class="field"><label>Домен сайта (существующий или новый)</label>' +
+    '<input type="text" id="iarch-dom" class="mono" placeholder="mysite.ru"></div>' +
+    '<label class="check"><input type="checkbox" id="iarch-clean" checked> ' +
+    'Очистить папку сайта перед распаковкой (файлы будут заменены)</label>' +
+    '<div class="field"><label>Zip с файлами сайта (до 200 МБ)</label>' +
+    '<input type="file" id="iarch-zip" accept=".zip"></div>' +
+    '<div class="field"><label>Дамп базы (необязательно)</label>' +
+    '<input type="file" id="iarch-sql" accept=".sql,.gz,.zip"></div>' +
+    '<div class="field"><label>База для дампа (имя; база должна существовать)</label>' +
+    '<input type="text" id="iarch-db" class="mono" placeholder="mysite_db"></div>' +
+    '<div id="iarch-out"></div>',
+    '<button class="btn primary" onclick="importArchiveGo()">' + icon('up', 15) + ' Импортировать</button>' +
+    '<button class="btn" onclick="closeModal()">Отмена</button>', true);
+}
+
+async function importArchiveGo(): Promise<void> {
+  const dom = ($('#iarch-dom') as HTMLInputElement).value.trim();
+  const zip = ($('#iarch-zip') as HTMLInputElement).files![0];
+  if (!dom) { toast('Укажите домен', 'warn'); return; }
+  if (!zip) { toast('Прикрепите zip-архив', 'warn'); return; }
+  const out = document.getElementById('iarch-out')!;
+  out.innerHTML = '<div class="notice info">Импортирую — не закрывайте окно…</div>';
+  const fd = new FormData();
+  fd.append('domain', dom);
+  fd.append('clean', ($('#iarch-clean') as HTMLInputElement).checked ? '1' : '0');
+  fd.append('file', zip);
+  const sql = ($('#iarch-sql') as HTMLInputElement).files![0];
+  if (sql) {
+    fd.append('sql', sql);
+    fd.append('db_name', ($('#iarch-db') as HTMLInputElement).value.trim());
+    fd.append('engine', 'mysql');
+  }
+  try {
+    const r = await fetch('/api/sites/import', { method: 'POST', body: fd }).then((x) => x.json());
+    if (!r.ok) throw new Error(r.error || 'ошибка импорта');
+    out.innerHTML = '<div class="notice ok">' + esc(r.message) + '</div>';
+    toast(esc(r.message));
+    setTimeout(() => { closeModal(); go('sites'); }, 1800);
+  } catch (e: any) {
+    out.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+  }
+}
+
+registerPage('sites', pgSites);
+
+export { pgSites, dnsPills, diskCard, drawDiskChart, pmaSiteBtn, pmaSiteDlg, pmaSiteOpen,
+  pmaSiteInstall, pmaSiteWait, siteRow, toggleSite, delSite, wizardSite, wzUpdate,
+  wizardCreate, wizardSubdomain, subCreate, siteDlg, sslBlockHtml, sslDnsCheck, stTab,
+  stPhpChanged, siteSave, toggleMaintenance, openSite, nodeAct, nodeLogsDlg,
+  defaultSiteDlg, defaultSiteSave, siteAuditDlg, sslIssue, sslDel, loadSiteStats,
+  loadSiteLoad, loadSiteHealth, loadSiteConf, saveSiteConf, loadSiteSecurity,
+  secAddCountry, secRemoveCountry, secAddIp, secRemoveIp, secSave, secGeoInstall, siteLog,
+  siteLogRefresh, applyLogFilters, openSiteFiles, logsClear, stFpmReco,
+  siteDnsFullDlg, importArchiveDlg, importArchiveGo };

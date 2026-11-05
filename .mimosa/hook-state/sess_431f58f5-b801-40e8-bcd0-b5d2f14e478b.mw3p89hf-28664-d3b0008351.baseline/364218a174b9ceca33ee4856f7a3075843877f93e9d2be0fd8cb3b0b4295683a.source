@@ -1,0 +1,57 @@
+/* ============ Модальные окна и подтверждения ============ */
+import { icon } from '../core/icons.js';
+import { esc } from '../core/format.js';
+let modalLocked = false;
+/** wide: false — обычное окно, true — широкое, 2 — сверхширокое. */
+export function modal(title, bodyHtml, footHtml, wide = false, locked = false) {
+    modalLocked = locked;
+    document.querySelector('#modals').classList.add('open');
+    const m = document.querySelector('#modal');
+    m.className = 'modal' + (wide === 2 ? ' xwide' : wide ? ' wide' : '');
+    m.innerHTML =
+        '<div class="modal-h">' + title +
+            (locked ? '' :
+                '<button class="btn icon modal-x" onclick="closeModal()">' + icon('x', 15) + '</button>') +
+            '</div>' +
+            // тело в форме: браузер не ругается на парольные поля вне формы
+            // ([DOM] Password field is not contained in a form), Enter в поле
+            // не приводит к перезагрузке страницы
+            '<div class="modal-b"><form class="modal-form" onsubmit="return false">' +
+            bodyHtml + '</form></div>' +
+            (footHtml ? '<div class="modal-f">' + footHtml + '</div>' : '');
+}
+export function closeModal() {
+    if (modalLocked)
+        return;
+    document.querySelector('#modals').classList.remove('open');
+    document.querySelector('#modal').innerHTML = '';
+    modalLocked = false;
+}
+/** Принудительное закрытие (например, после смены пароля из заблокированного окна). */
+export function unlockModal() { modalLocked = false; }
+export function isModalOpen() {
+    return document.querySelector('#modals').classList.contains('open');
+}
+document.addEventListener('mousedown', (e) => {
+    if (e.target.id === 'modals' && !modalLocked)
+        closeModal();
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modalLocked)
+        closeModal();
+});
+let confirmOk = null;
+export function confirmDlg(title, text, onOk, danger = true) {
+    confirmOk = onOk;
+    modal(esc(title), '<p style="margin:4px 0 6px">' + text + '</p>', '<button class="btn' + (danger ? ' danger' : ' primary') +
+        '" onclick="closeModal(); runConfirm()">Подтвердить</button>' +
+        '<button class="btn" onclick="closeModal()">Отмена</button>');
+}
+/** Вызывается из inline onclick кнопки «Подтвердить» (глобальный реестр). */
+export function runConfirm() {
+    if (confirmOk) {
+        const fn = confirmOk;
+        confirmOk = null;
+        fn();
+    }
+}

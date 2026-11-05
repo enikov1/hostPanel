@@ -1,0 +1,14 @@
+/* ============ Мобильная адаптация таблиц: заголовки -> подписи ============ */
+
+export function transformTables(root?: ParentNode | null): void {
+  (root || document).querySelectorAll('table').forEach((t) => {
+    const heads = Array.from(t.querySelectorAll('thead th'))
+      .map((th) => th.textContent!.trim());
+    if (!heads.length) return;
+    t.querySelectorAll('tbody tr').forEach((tr) => {
+      Array.from(tr.children).forEach((td, i) => {
+        td.setAttribute('data-l', heads[i] || '');
+      });
+    });
+  });
+}

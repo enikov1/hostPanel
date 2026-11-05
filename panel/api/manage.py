@@ -6,7 +6,8 @@ import urllib.parse
 
 from .. import config, utils
 from ..context import CTX, fm_allowed, run, site_docroot_abs
-from ..core import backup, db as db_mod, services, files as files_mod
+from ..core import backup
+from ..core import notify as notify_mod, db as db_mod, services, files as files_mod
 from .router import get, post, ok, err, done
 
 
@@ -609,7 +610,19 @@ def settings_save(handler, body):
             cur["security"] = {"enabled": bool(
                 (src.get("security") or {}).get("enabled"))}
         CTX.store.save()
+    # события уведомлений приходят отдельным ключом notify_events
+    # (на верхнем уровне — чтобы работало и без блока notify)
+    if isinstance(body.get("notify_events"), dict):
+        cur = sset.setdefault("notify", {})
+        allowed = set(notify_mod.EVENTS)
+        merged = dict(cur.get("events") or {})
+        merged.update({k: bool(v) for k, v in
+                       body["notify_events"].items() if k in allowed})
+        cur["events"] = merged
+        CTX.store.save()
     return done("настройки сохранены")
+
+
 
 
 @post("/api/notify/test")
