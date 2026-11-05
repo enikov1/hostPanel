@@ -10,6 +10,8 @@ import UiIcon from '../../components/UiIcon.vue';
 import AppModal from '../../components/AppModal.vue';
 import WizardSubdomain from './WizardSubdomain.vue';
 import { siteState, openSiteUrl, WEBSERVERS } from './siteShared';
+import UiCheckbox from '../../components/ui/UiCheckbox.vue';
+import UiSelect from '../../components/ui/UiSelect.vue';
 
 const router = useRouter();
 
