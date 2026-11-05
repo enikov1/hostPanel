@@ -137,9 +137,10 @@ def _do_update():
          (os.path.getsize(archive) // 1024))
     with tarfile.open(archive, "r:gz") as tf:
         # защита от path traversal: только обычные файлы/папки внутри tmp
+        # (не используем имя target — оно занято путём панели)
         for member in tf.getmembers():
-            target = os.path.realpath(os.path.join(tmp, member.name))
-            if not target.startswith(os.path.realpath(tmp) + os.sep):
+            member_path = os.path.realpath(os.path.join(tmp, member.name))
+            if not member_path.startswith(os.path.realpath(tmp) + os.sep):
                 raise RuntimeError("подозрительный путь в архиве: "
                                    + member.name)
         tf.extractall(tmp)
