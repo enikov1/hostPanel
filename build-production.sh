@@ -25,6 +25,11 @@ PROD="$ROOT/production"
 
 # ---------- версия ----------
 VER="$(cat "$ROOT/VERSION" | tr -d '[:space:]')"
+CFG_VER="$(grep -oE 'VERSION = "[^"]+"' "$ROOT/panel/config.py" | grep -oE '[0-9]+[0-9.]*')"
+if [ "$VER" != "$CFG_VER" ]; then
+    echo "ОШИБКА: VERSION ($VER) != panel/config.py ($CFG_VER) — синхронизируйте версии перед сборкой" >&2
+    exit 1
+fi
 echo "==> HostPanel v$VER — сборка production"
 
 # ---------- 1. фронтенд ----------
