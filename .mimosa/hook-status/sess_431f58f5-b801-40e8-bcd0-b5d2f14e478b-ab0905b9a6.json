@@ -1,14 +1,14 @@
 {
   "schemaVersion": "mimosa-hook-status/v1",
-  "recordedAt": "2026-11-06T19:31:15.093Z",
+  "recordedAt": "2026-11-06T19:53:06.117Z",
   "sessionId": "sess_431f58f5-b801-40e8-bcd0-b5d2f14e478b",
   "event": "PostToolUse",
-  "toolName": "Write",
-  "file": "web-src/src/views/site/TabEngine.vue",
+  "toolName": "Edit",
+  "file": "panel/api/engines.py",
   "outcome": "clear",
   "coverage": "complete",
   "findingCount": 0,
-  "durationMs": 13,
+  "durationMs": 44,
   "hostState": "hook_complete",
   "reportHint": ".mimosa/reports/"
 }

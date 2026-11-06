@@ -140,8 +140,9 @@ async function doInstall(): Promise<void> {
       body.dist_b64 = await toB64(dleFile.value);
       body.dist_name = distName.value;
     }
-    const r = await api('/api/site/' + siteId.value + '/engine/' + id +
-                        '/install', { method: 'POST', body });
+    body.engine = id;
+    const r = await api('/api/site/' + siteId.value + '/engine/install', {
+      method: 'POST', body });
     toast(r.message);
     closeInstall();
     running.value = true;

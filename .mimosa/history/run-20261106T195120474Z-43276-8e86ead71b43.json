@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "mimosa-finding-history/v1",
+  "runId": "20261106T195120474Z-43276-8e86ead71b43",
+  "runStatus": "inconclusive",
+  "errors": [
+    "candidate-select:.cldfix/install.sh: changed_file_unreadable: observed changed file no longer exists or cannot be read",
+    "candidate-select:panel/web/assets/ServicesView-5fPLxQBn.js: candidate_limit_exceeded: 15 changed reviewable file(s) were not scanned because the limit is 20",
+    "baseline-read:panel/web/assets/BackupsView-1M1GNHjx.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-2mNVjN_x.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/CertsView-YfMa2jj0.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-BYX-4brD.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-CxvdQk_3.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/CronView-DnUMqdra.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/DbsView-BaRYexOK.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/FilesView-D7Fompew.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/FirewallView-B38mCgF0.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/HealthView-pnQzvKQF.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/index-CfEmrbxc.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/MailView-DPtXqPen.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/OverviewView-q6Ma0QjJ.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/PackagesView-4kDjhPJ3.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:panel/web/assets/pmaStore-C9OlwX2A.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "scan:panel/core/engines.py: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/api/engines.py: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:web-src/src/lib/brands.ts: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/config.py: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/server.py: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/BackupsView-1M1GNHjx.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-2mNVjN_x.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/CertsView-YfMa2jj0.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-BYX-4brD.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-CxvdQk_3.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/CronView-DnUMqdra.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/DbsView-BaRYexOK.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/FilesView-D7Fompew.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/FirewallView-B38mCgF0.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/HealthView-pnQzvKQF.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/index-CfEmrbxc.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/MailView-DPtXqPen.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/OverviewView-q6Ma0QjJ.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/PackagesView-4kDjhPJ3.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:panel/web/assets/pmaStore-C9OlwX2A.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+  ],
+  "target": ".",
+  "revision": "e7ddc5310c297a36eb09adca8e8826eee7e861cb",
+  "diffHash": "35113b772f4b71f3d5c7032a6c24321692a4034e49e758129551628f40e9df52",
+  "rulesVersion": "unavailable",
+  "recordedAt": "2026-11-06T19:51:20.474Z",
+  "timing": {
+    "startedAt": "2026-11-06T19:51:17.419Z",
+    "completedAt": "2026-11-06T19:51:20.474Z",
+    "durationMs": 3055
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "modelCalls": 0,
+    "measurement": "known-zero"
+  },
+  "findings": {
+    "total": 0,
+    "bySeverity": {},
+    "byStatus": {}
+  },
+  "coverage": {
+    "status": "partial",
+    "reasonCounts": {
+      "changed_file_unreadable": 1,
+      "candidate_limit_exceeded": 1,
+      "baseline_snapshot_unreadable": 15,
+      "scanner_failed": 20,
+      "project_check_failed": 37
+    }
+  },
+  "evidenceBoundary": "static_only",
+  "immutableReport": ".mimosa/reports/task-review-sess_431f58f5-b801-40e8-bcd0-b5d2f14e478b-20261106T195120474Z-43276-8e86ead71b43.json"
+}
