@@ -106,9 +106,11 @@ def install_task(site, db_name, db_user, db_password, admin_token):
             return False, "установка уже выполняется"
         TASK.update({"running": True, "site_id": site["id"], "log": [],
                      "error": "", "done": False})
+    # передаём ссылку на словарь из store (не копию): воркер обновляет
+    # состояние сайта под STATE_LOCK
     t = threading.Thread(
         target=_worker,
-        args=(dict(site), db_name, db_user, db_password, admin_token),
+        args=(site, db_name, db_user, db_password, admin_token),
         daemon=True)
     t.start()
     return True, "установка движка запущена — займёт несколько минут"
