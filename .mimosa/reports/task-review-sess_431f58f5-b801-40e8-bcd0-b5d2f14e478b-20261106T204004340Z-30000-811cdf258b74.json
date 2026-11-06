@@ -1,0 +1,319 @@
+{
+  "schema_version": "mimosa-task-review/v2",
+  "run_id": "20261106T204004340Z-30000-811cdf258b74",
+  "run_status": "inconclusive",
+  "errors": [
+    {
+      "stage": "scan",
+      "target": "panel/api/engines.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "test-engine-api.sh",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "check-route.sh",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "chk.py.sh",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "record-cld.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "panel/core/cld.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    }
+  ],
+  "coverage": {
+    "schema_version": "mimosa-hook-coverage/v1",
+    "status": "partial",
+    "scope": "hook_observed_diff",
+    "baseline": {
+      "complete": true,
+      "captured_files": 355,
+      "candidate_limit": 5000,
+      "truncated": false,
+      "enumeration_error_count": 0,
+      "snapshot_error_count": 0,
+      "compensated_target_count": 6
+    },
+    "change_tracking": {
+      "touched_observed": 5,
+      "touched_retained": 5,
+      "truncated": false,
+      "bash_mutation": true,
+      "bash_discovered": 6,
+      "bash_discovery_limit": 80,
+      "bash_discovery_truncated": false
+    },
+    "candidates": {
+      "eligible_files": 6,
+      "selected_files": 6,
+      "limit": 20,
+      "truncated": false
+    },
+    "scanning": {
+      "required_files": 6,
+      "scanned_files": 0,
+      "skipped_files": 0,
+      "failed_files": 6,
+      "project_checks_required": 0,
+      "project_checks_completed": 0
+    },
+    "notification": {
+      "eligible_findings": 0,
+      "detailed_findings": 0,
+      "detail_limit": 3,
+      "truncated": false
+    },
+    "reason_counts": {
+      "scanner_failed": 6,
+      "project_check_failed": 6
+    },
+    "reasons": [
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "panel/api/engines.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "test-engine-api.sh",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "check-route.sh",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "chk.py.sh",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "record-cld.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "panel/core/cld.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "panel/api/engines.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "test-engine-api.sh",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "check-route.sh",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "chk.py.sh",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "record-cld.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "panel/core/cld.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      }
+    ],
+    "reasons_truncated": false
+  },
+  "generated_at": "2026-11-06T20:40:04.340Z",
+  "session_id": "sess_431f58f5-b801-40e8-bcd0-b5d2f14e478b",
+  "target": ".",
+  "revision": "59e39d5416689487a3f16801e8ffcdb18f9ddbfe",
+  "rules_version": "unavailable",
+  "diff_hash": "f74bf557ee2e477c32d864137b5e4a12b11900a6cec4e62ba9b17aefaf8a7f66",
+  "diff": {
+    "algorithm": "sha256",
+    "changed_file_count": 6,
+    "changed_files": [
+      {
+        "file": "check-route.sh",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 4
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "daf60d055724f9476c0c3c8b9d34cb3ed57c872bf76971941f17647b662d4213"
+      },
+      {
+        "file": "chk.py.sh",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 4
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "d4643da65afb9699b71c18680b65611886e5ffddd2f0bcc51ec6e7f9f4af57d6"
+      },
+      {
+        "file": "panel/api/engines.py",
+        "ranges": [
+          {
+            "start": 32,
+            "end": 33
+          },
+          {
+            "start": 36,
+            "end": 38
+          },
+          {
+            "start": 43,
+            "end": 43
+          },
+          {
+            "start": 68,
+            "end": 69
+          },
+          {
+            "start": 74,
+            "end": 74
+          }
+        ],
+        "before_hash": "99b05698f046546bdd71de8454c5c695213f53b4cebd2ab29f297cd139ec1121",
+        "after_hash": "cd6efbe45a9bd3fc5097663dc98a25c576f731ddeee567dea5fcdaf5ae711cb9"
+      },
+      {
+        "file": "panel/core/cld.py",
+        "ranges": [
+          {
+            "start": 109,
+            "end": 110
+          },
+          {
+            "start": 113,
+            "end": 113
+          }
+        ],
+        "before_hash": "4fa61265efd3178255a0a1274a94f5da04da70538e100039345555cc8cd6760e",
+        "after_hash": "049c53a93147c60cc10f8cef3e956c9be2e528913a376d014e1304462ae2c07e"
+      },
+      {
+        "file": "record-cld.py",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 24
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "0604b008e907724205e1876c241f0bb310111b3e1024f7ddc8c5b05d4d4c2af6"
+      },
+      {
+        "file": "test-engine-api.sh",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 15
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "82d3ff854ab337345f407403d8d7477b3ef1a45cd1b7b1ea76e1b75943024310"
+      }
+    ]
+  },
+  "timing": {
+    "started_at": "2026-11-06T20:39:57.941Z",
+    "completed_at": "2026-11-06T20:40:04.340Z",
+    "duration_ms": 6399,
+    "measurement": "hook_wall_clock"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "model_calls": 0,
+    "measurement": "known-zero"
+  },
+  "telemetry": {
+    "schemaVersion": "mimosa-gate-telemetry/v1",
+    "profile": "gate",
+    "operation": "Stop",
+    "outcome": "partial/INCONCLUSIVE",
+    "latencyMs": 6399,
+    "peakMemoryBytes": 92651520,
+    "memoryMeasurement": "max-observed-process-rss",
+    "scannedFiles": 0,
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "measurement": "not-applicable"
+    },
+    "denyCount": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "modelCalls": 0,
+      "measurement": "known-zero"
+    }
+  },
+  "finding_count": 0,
+  "rewake_finding_count": 0,
+  "evidence_boundary": {
+    "scan": "candidate",
+    "static_fix_verification": "observed_static_only",
+    "runtime_verification": "not_performed"
+  },
+  "finding_events": [],
+  "findings": [],
+  "artifacts": {
+    "immutable_report": ".mimosa/reports/task-review-sess_431f58f5-b801-40e8-bcd0-b5d2f14e478b-20261106T204004340Z-30000-811cdf258b74.json",
+    "latest_report": ".mimosa/reports/task-review-sess_431f58f5-b801-40e8-bcd0-b5d2f14e478b.json",
+    "history_summary": ".mimosa/history/run-20261106T204004340Z-30000-811cdf258b74.json"
+  }
+}

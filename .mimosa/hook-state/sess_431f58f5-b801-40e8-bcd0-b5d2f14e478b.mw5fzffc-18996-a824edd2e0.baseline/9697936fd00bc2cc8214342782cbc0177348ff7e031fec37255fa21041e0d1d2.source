@@ -29,17 +29,18 @@ def engine_status(handler, qs, sid):
               log=log, error=error, task_done=done)
 
 
-@post("/api/site/:sid/engine/:engine/install")
-def engine_install(handler, body, sid, engine):
+@post("/api/site/:sid/engine/install")
+def engine_install(handler, body, sid):
     """Установка выбранного движка на сайт.
 
-    body: {db_mode?: "new"|"existing", db_name?, db_user?, db_password?,
-           site_title?, admin_email?, dist_b64?, dist_name? (для dle),
-           confirm_overwrite?: bool}
+    body: {engine: "omro"|"wordpress"|..., db_mode?: "new"|"existing",
+           db_name?, db_user?, db_password?, site_title?, admin_email?,
+           dist_b64?, dist_name? (для dle), confirm_overwrite?: bool}
     """
     site, e = _site(handler, sid)
     if e:
         return e
+    engine = str(body.get("engine") or "")
     if engine not in engines_mod.ENGINES:
         return err("неизвестный движок")
 
@@ -64,12 +65,13 @@ def engine_install(handler, body, sid, engine):
     return ok(message=msg)
 
 
-@post("/api/site/:sid/engine/:engine/remove")
-def engine_remove(handler, body, sid, engine):
+@post("/api/site/:sid/engine/remove")
+def engine_remove(handler, body, sid):
     """Сброс отметки об установленном движке (файлы не удаляются)."""
     site, e = _site(handler, sid)
     if e:
         return e
+    engine = str(body.get("engine") or "")
     eng = site.get("engines") or {}
     if engine not in eng:
         return err("движок не установлен")
