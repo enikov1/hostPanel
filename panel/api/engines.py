@@ -25,8 +25,10 @@ def engine_status(handler, qs, sid):
     if e:
         return e
     running, log, error, done = engines_mod.task_for_site(site["id"])
-    return ok(engines=site.get("engines") or {}, running=running,
-              log=log, error=error, task_done=done)
+    # cld (Omro) хранит состояние в отдельном ключе — отдаём вместе
+    return ok(engines=site.get("engines") or {},
+              cld=site.get("cld") or {},
+              running=running, log=log, error=error, task_done=done)
 
 
 @post("/api/site/:sid/engine/install")

@@ -63,6 +63,8 @@ async function load(): Promise<void> {
   try {
     const d = await api('/api/site/' + siteId.value + '/engine');
     installed.value = d.engines || {};
+    // Omro хранится отдельно (core/cld) — мержим для отображения
+    if (d.cld && d.cld.installed_at) installed.value = { ...installed.value, omro: d.cld };
     running.value = !!d.running;
     log.value = d.log || [];
     error.value = d.error || '';

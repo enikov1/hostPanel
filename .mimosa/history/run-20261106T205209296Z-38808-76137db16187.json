@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "mimosa-finding-history/v1",
+  "runId": "20261106T205209296Z-38808-76137db16187",
+  "runStatus": "inconclusive",
+  "errors": [
+    "candidate-select:production/panel/web/assets/SettingsView-h80c4naT.js: candidate_limit_exceeded: 16 changed reviewable file(s) were not scanned because the limit is 20",
+    "baseline-read:production/panel/web/assets/BackupsView-B6D0D4bQ.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-Oq-z8MCJ.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/CertsView-D2qppQhC.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-Cl8XvFmn.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-CnIarwWv.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/CronView-BrvFQuSZ.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/DbsView-DuT6iGcH.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/FilesView-C4zFnB-d.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/FirewallView-B3oeYisB.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/HealthView-D93SWiXU.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/index-BcUSvHcc.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/MailView-C98XLsfh.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/OverviewView-e0wVztr4.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/PackagesView-CT8vDiaA.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/pmaStore-BpgKck0W.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:production/panel/web/assets/ServicesView-0Q1vvOfA.js: baseline_snapshot_unreadable: file is missing from task baseline",
+    "scan:panel/config.py: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:build-production.sh: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/config.py: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/server.py: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/BackupsView-B6D0D4bQ.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-Oq-z8MCJ.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/CertsView-D2qppQhC.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-Cl8XvFmn.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-CnIarwWv.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/CronView-BrvFQuSZ.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/DbsView-DuT6iGcH.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/FilesView-C4zFnB-d.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/FirewallView-B3oeYisB.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/HealthView-D93SWiXU.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/index-BcUSvHcc.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/MailView-C98XLsfh.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/OverviewView-e0wVztr4.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/PackagesView-CT8vDiaA.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/pmaStore-BpgKck0W.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+    "scan:production/panel/web/assets/ServicesView-0Q1vvOfA.js: scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+  ],
+  "target": ".",
+  "revision": "1b840866421c4167d79ef73c78e04f2ed8366caf",
+  "diffHash": "357aa436519eb491b27a13efb7032ebae1e784b12e01a38b83c3532eb08075d2",
+  "rulesVersion": "unavailable",
+  "recordedAt": "2026-11-06T20:52:09.296Z",
+  "timing": {
+    "startedAt": "2026-11-06T20:52:06.291Z",
+    "completedAt": "2026-11-06T20:52:09.296Z",
+    "durationMs": 3005
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "modelCalls": 0,
+    "measurement": "known-zero"
+  },
+  "findings": {
+    "total": 0,
+    "bySeverity": {},
+    "byStatus": {}
+  },
+  "coverage": {
+    "status": "partial",
+    "reasonCounts": {
+      "candidate_limit_exceeded": 1,
+      "baseline_snapshot_unreadable": 16,
+      "scanner_failed": 20,
+      "project_check_failed": 37
+    }
+  },
+  "evidenceBoundary": "static_only",
+  "immutableReport": ".mimosa/reports/task-review-sess_431f58f5-b801-40e8-bcd0-b5d2f14e478b-20261106T205209296Z-38808-76137db16187.json"
+}
