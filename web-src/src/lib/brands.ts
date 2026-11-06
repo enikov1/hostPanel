@@ -19,6 +19,10 @@ export const BRANDS: Record<string, string> = {
   certbot: 'letsencrypt',
   docker: 'docker',
   pma: 'php',
+  joomla: 'joomla',
+  drupal: 'drupal',
+  dle: 'archive',
+  omro: 'php',
   phpmyadmin: 'php',
   ioncube: 'php',
   geoip2: 'cloudflare',
@@ -39,6 +43,8 @@ export function brandFor(name: string): string | null {
   if (n.startsWith('postfix')) return null;
   if (n.startsWith('dovecot')) return null;
   if (n.startsWith('node')) return 'nodedotjs';
+  if (n === 'dle') return 'archive';
+  if (n === 'omro') return 'php';
   if (n.startsWith('certbot')) return 'letsencrypt';
   if (n.startsWith('letsencrypt')) return 'letsencrypt';
   if (n.startsWith('git')) return 'git';

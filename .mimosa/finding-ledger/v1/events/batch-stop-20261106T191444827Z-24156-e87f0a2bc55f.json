@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261106T191444827Z-24156-e87f0a2bc55f",
+  "runId": "20261106T191444827Z-24156-e87f0a2bc55f",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "dac9a951729599978bc579f5402e4c992e88c4b1",
+  "diffHash": "518d39eb3fa6bc17195c489265c059a38f6f7464d1da2df2d91b252a93ad3151",
+  "rulesVersion": "unavailable",
+  "sessionHash": "ab0905b9a671aab65eb4fcf40a71faae8ce28c0397440aab8d2068cd6c54ce60",
+  "reportRef": ".mimosa/reports/task-review-sess_431f58f5-b801-40e8-bcd0-b5d2f14e478b-20261106T191444827Z-24156-e87f0a2bc55f.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-a907e6ad6b1c6d85a6d02bb9",
+    "mimosa-81d79ffef693757a896b3df6"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "update-server.sh",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "panel/config.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "production/panel/config.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "production/panel/core/cld.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "panel/core/cld.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-11-06T19:14:45.723Z"
+}

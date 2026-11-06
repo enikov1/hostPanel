@@ -344,9 +344,9 @@ def write_site_configs(site, old_domain=None):
                 "        deny all;\n"
                 "        try_files $uri $uri/ /index.php$is_args$args;\n"
                 "    }" % (apath, rx, ips))
-        if site.get("engine_cld"):
+        if site.get("engine_cld") or site.get("engine_wp"):
             snippet_blocks.append(
-                "    # HostPanel: движок Omro (Laravel front-controller)\n"
+                "    # HostPanel: движок сайта (front-controller)\n"
                 "    location / {\n"
                 "        try_files $uri $uri/ /index.php?$query_string;\n"
                 "    }")
