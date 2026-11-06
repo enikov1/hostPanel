@@ -140,9 +140,17 @@ async function doInstall(): Promise<void> {
       body.dist_b64 = await toB64(dleFile.value);
       body.dist_name = distName.value;
     }
-    body.engine = id;
-    const r = await api('/api/site/' + siteId.value + '/engine/install', {
-      method: 'POST', body });
+    let r;
+    if (id === 'omro') {
+      // собственный движок панели — отдельный модуль (core/cld)
+      r = await api('/api/site/' + siteId.value + '/cld/install', {
+        method: 'POST', body: { db_mode: dbMode.value,
+          confirm_overwrite: true } });
+    } else {
+      body.engine = id;
+      r = await api('/api/site/' + siteId.value + '/engine/install', {
+        method: 'POST', body });
+    }
     toast(r.message);
     closeInstall();
     running.value = true;
