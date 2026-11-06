@@ -143,6 +143,9 @@ def _worker(site, db_name, db_user, db_password, admin_token):
 
         _log("Запускаю установку Omro (PANEL_MODE=1) — это займёт несколько минут…")
         env = dict(os.environ)
+        # systemd-служба панели может запускаться без HOME — он нужен
+        # composer и другим инструментам установщика
+        env.setdefault("HOME", "/root")
         env.update({
             "PANEL_MODE": "1", "DEBIAN_FRONTEND": "noninteractive",
             "APP_DIR": docroot, "DOMAIN": domain,
