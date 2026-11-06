@@ -9,6 +9,7 @@ import { toast, toastErr } from '../lib/toast';
 import { me } from '../stores';
 import UiIcon from '../components/UiIcon.vue';
 import TabOverview from './site/TabOverview.vue';
+import TabEngine from './site/TabEngine.vue';
 import TabPhp from './site/TabPhp.vue';
 import TabNode from './site/TabNode.vue';
 import TabSsl from './site/TabSsl.vue';
@@ -28,6 +29,7 @@ const loadErr = ref('');
 
 const TABS: { id: string; t: string; expert?: boolean }[] = [
   { id: 'main', t: 'Основное' },
+  { id: 'engine', t: 'Движок' },
   { id: 'php', t: 'PHP и FPM' },
   { id: 'node', t: 'Node.js' },
   { id: 'ssl', t: 'SSL' },
@@ -128,6 +130,7 @@ watch(() => route.params.id, (v, old) => {
       </div>
 
       <TabOverview v-if="activeTab === 'main'" />
+      <TabEngine v-else-if="activeTab === 'engine'" />
       <TabPhp v-else-if="activeTab === 'php'" />
       <TabNode v-else-if="activeTab === 'node'" />
       <TabSsl v-else-if="activeTab === 'ssl'" />

@@ -11,7 +11,7 @@ from . import config, utils
 from .context import CTX, STATE_LOCK
 from .api import auth
 from .api import router  # noqa: F401 (импорт регистрирует маршруты)
-from .api import general, sites, system, manage, mail, cli, swset, panelupd  # noqa: F401
+from .api import general, sites, system, manage, mail, cli, swset, panelupd, cld  # noqa: F401
 
 PANEL_HOME_ = ""
 

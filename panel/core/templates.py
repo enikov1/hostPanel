@@ -266,6 +266,9 @@ def write_site_configs(site, old_domain=None):
     domain = site["domain"]
     docroot = utils.safe_join("/", site["docroot"].lstrip("/")) \
         if os.path.isabs(site["docroot"]) else site["docroot"]
+    # движок Omro (cld): веб-корень — вложенная папка public/
+    if site.get("engine_cld"):
+        docroot = docroot.rstrip("/") + "/public"
     logs_dir = config.REAL_LOGS_DIR
     os.makedirs(docroot, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
@@ -341,6 +344,12 @@ def write_site_configs(site, old_domain=None):
                 "        deny all;\n"
                 "        try_files $uri $uri/ /index.php$is_args$args;\n"
                 "    }" % (apath, rx, ips))
+        if site.get("engine_cld"):
+            snippet_blocks.append(
+                "    # HostPanel: движок Omro (Laravel front-controller)\n"
+                "    location / {\n"
+                "        try_files $uri $uri/ /index.php?$query_string;\n"
+                "    }")
         upload_size = (snip.get("upload_size") or "").strip() or "64m"
         ssl = site.get("ssl") or {}
         ssl_listen = ""
