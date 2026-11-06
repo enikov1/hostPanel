@@ -1,102 +1,97 @@
 {
   "schema_version": "mimosa-task-review/v2",
-  "run_id": "20261105T171355116Z-37032-21974aa19cfd",
+  "run_id": "20261106T190140081Z-46416-58c649763587",
   "run_status": "inconclusive",
   "errors": [
     {
       "stage": "candidate-select",
-      "target": "production/panel/web/assets/siteShared-JVvGLvrX.js",
-      "reason": "candidate_limit_exceeded: 38 changed reviewable file(s) were not scanned because the limit is 20"
+      "target": "production/panel/web/assets/ServicesView-Bn7UpniT.js",
+      "reason": "candidate_limit_exceeded: 46 changed reviewable file(s) were not scanned because the limit is 20"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/BackupsView-CEoYHxHc.js",
+      "target": "production/panel/web/assets/BackupsView-xggP1jVZ.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-Bmp98p5A.js",
+      "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-yClAAKEX.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/CertsView-JFLJx8BZ.js",
+      "target": "production/panel/web/assets/CertsView-D86bKmLc.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DTv4RGuz.js",
+      "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DF84EtD4.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-ymEK73vR.js",
+      "target": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-L-XWDwRm.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/CronView-C-o-niRz.js",
+      "target": "production/panel/web/assets/CronView-D1gh6bVY.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/DbsView-V-fbhIL1.js",
+      "target": "production/panel/web/assets/DbsView-C_TDZ6UZ.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/FilesView-CVZcSgBb.js",
+      "target": "production/panel/web/assets/FilesView-HGluWqi6.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/FirewallView-Ch2bzn0Q.js",
+      "target": "production/panel/web/assets/FirewallView-HnQVcRd1.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/HealthView-CyvUiDS3.js",
+      "target": "production/panel/web/assets/HealthView-Dq1gKB_3.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/index-D0J4gw_9.js",
+      "target": "production/panel/web/assets/index-TSUiHK2M.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/MailView-UPEfA1_D.js",
+      "target": "production/panel/web/assets/MailView-Dv1j4ezT.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/OverviewView-BOtpbUly.js",
+      "target": "production/panel/web/assets/OverviewView-DOFc6DZo.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/PackagesView-eB3zs-BA.js",
+      "target": "production/panel/web/assets/PackagesView-COnk10vS.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
       "stage": "baseline-read",
-      "target": "production/panel/web/assets/pmaStore-DxVwBUqQ.js",
+      "target": "production/panel/web/assets/pmaStore-Zwbw3VCh.js",
       "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
     },
     {
-      "stage": "baseline-read",
-      "target": "production/panel/web/assets/ServicesView-PDnokBx8.js",
-      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+      "stage": "scan",
+      "target": "panel/core/cld.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
-      "stage": "baseline-read",
-      "target": "production/panel/web/assets/SettingsView-l6uKl48K.js",
-      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
-    },
-    {
-      "stage": "baseline-read",
-      "target": "production/panel/web/assets/SiteDetailView-DkAoPOmy.js",
-      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+      "stage": "scan",
+      "target": "panel/api/cld.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
@@ -110,92 +105,82 @@
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/BackupsView-CEoYHxHc.js",
+      "target": "production/panel/server.py",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-Bmp98p5A.js",
+      "target": "production/panel/web/assets/BackupsView-xggP1jVZ.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/CertsView-JFLJx8BZ.js",
+      "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-yClAAKEX.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DTv4RGuz.js",
+      "target": "production/panel/web/assets/CertsView-D86bKmLc.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-ymEK73vR.js",
+      "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DF84EtD4.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/CronView-C-o-niRz.js",
+      "target": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-L-XWDwRm.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/DbsView-V-fbhIL1.js",
+      "target": "production/panel/web/assets/CronView-D1gh6bVY.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/FilesView-CVZcSgBb.js",
+      "target": "production/panel/web/assets/DbsView-C_TDZ6UZ.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/FirewallView-Ch2bzn0Q.js",
+      "target": "production/panel/web/assets/FilesView-HGluWqi6.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/HealthView-CyvUiDS3.js",
+      "target": "production/panel/web/assets/FirewallView-HnQVcRd1.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/index-D0J4gw_9.js",
+      "target": "production/panel/web/assets/HealthView-Dq1gKB_3.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/MailView-UPEfA1_D.js",
+      "target": "production/panel/web/assets/index-TSUiHK2M.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/OverviewView-BOtpbUly.js",
+      "target": "production/panel/web/assets/MailView-Dv1j4ezT.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/PackagesView-eB3zs-BA.js",
+      "target": "production/panel/web/assets/OverviewView-DOFc6DZo.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/pmaStore-DxVwBUqQ.js",
+      "target": "production/panel/web/assets/PackagesView-COnk10vS.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     },
     {
       "stage": "scan",
-      "target": "production/panel/web/assets/ServicesView-PDnokBx8.js",
-      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
-    },
-    {
-      "stage": "scan",
-      "target": "production/panel/web/assets/SettingsView-l6uKl48K.js",
-      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
-    },
-    {
-      "stage": "scan",
-      "target": "production/panel/web/assets/SiteDetailView-DkAoPOmy.js",
+      "target": "production/panel/web/assets/pmaStore-Zwbw3VCh.js",
       "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
     }
   ],
@@ -205,24 +190,24 @@
     "scope": "hook_observed_diff",
     "baseline": {
       "complete": true,
-      "captured_files": 344,
+      "captured_files": 346,
       "candidate_limit": 5000,
       "truncated": false,
       "enumeration_error_count": 0,
       "snapshot_error_count": 0,
-      "compensated_target_count": 2
+      "compensated_target_count": 8
     },
     "change_tracking": {
-      "touched_observed": 1,
-      "touched_retained": 1,
+      "touched_observed": 3,
+      "touched_retained": 3,
       "truncated": false,
       "bash_mutation": true,
-      "bash_discovered": 58,
+      "bash_discovered": 66,
       "bash_discovery_limit": 80,
       "bash_discovery_truncated": false
     },
     "candidates": {
-      "eligible_files": 58,
+      "eligible_files": 66,
       "selected_files": 20,
       "limit": 20,
       "truncated": true
@@ -243,142 +228,135 @@
     },
     "reason_counts": {
       "candidate_limit_exceeded": 1,
-      "baseline_snapshot_unreadable": 18,
+      "baseline_snapshot_unreadable": 15,
       "scanner_failed": 20,
-      "project_check_failed": 39
+      "project_check_failed": 36
     },
     "reasons": [
       {
         "code": "candidate_limit_exceeded",
         "stage": "candidate-select",
-        "target": "production/panel/web/assets/siteShared-JVvGLvrX.js",
-        "detail": "38 changed reviewable file(s) were not scanned because the limit is 20",
+        "target": "production/panel/web/assets/ServicesView-Bn7UpniT.js",
+        "detail": "46 changed reviewable file(s) were not scanned because the limit is 20",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/BackupsView-CEoYHxHc.js",
+        "target": "production/panel/web/assets/BackupsView-xggP1jVZ.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-Bmp98p5A.js",
+        "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-yClAAKEX.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/CertsView-JFLJx8BZ.js",
+        "target": "production/panel/web/assets/CertsView-D86bKmLc.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DTv4RGuz.js",
+        "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DF84EtD4.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-ymEK73vR.js",
+        "target": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-L-XWDwRm.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/CronView-C-o-niRz.js",
+        "target": "production/panel/web/assets/CronView-D1gh6bVY.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/DbsView-V-fbhIL1.js",
+        "target": "production/panel/web/assets/DbsView-C_TDZ6UZ.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/FilesView-CVZcSgBb.js",
+        "target": "production/panel/web/assets/FilesView-HGluWqi6.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/FirewallView-Ch2bzn0Q.js",
+        "target": "production/panel/web/assets/FirewallView-HnQVcRd1.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/HealthView-CyvUiDS3.js",
+        "target": "production/panel/web/assets/HealthView-Dq1gKB_3.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/index-D0J4gw_9.js",
+        "target": "production/panel/web/assets/index-TSUiHK2M.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/MailView-UPEfA1_D.js",
+        "target": "production/panel/web/assets/MailView-Dv1j4ezT.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/OverviewView-BOtpbUly.js",
+        "target": "production/panel/web/assets/OverviewView-DOFc6DZo.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/PackagesView-eB3zs-BA.js",
+        "target": "production/panel/web/assets/PackagesView-COnk10vS.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "baseline_snapshot_unreadable",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/pmaStore-DxVwBUqQ.js",
+        "target": "production/panel/web/assets/pmaStore-Zwbw3VCh.js",
         "detail": "file is missing from task baseline",
         "affects_completion": true
       },
       {
-        "code": "baseline_snapshot_unreadable",
-        "stage": "baseline-read",
-        "target": "production/panel/web/assets/ServicesView-PDnokBx8.js",
-        "detail": "file is missing from task baseline",
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "panel/core/cld.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
-        "code": "baseline_snapshot_unreadable",
-        "stage": "baseline-read",
-        "target": "production/panel/web/assets/SettingsView-l6uKl48K.js",
-        "detail": "file is missing from task baseline",
-        "affects_completion": true
-      },
-      {
-        "code": "baseline_snapshot_unreadable",
-        "stage": "baseline-read",
-        "target": "production/panel/web/assets/SiteDetailView-DkAoPOmy.js",
-        "detail": "file is missing from task baseline",
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "panel/api/cld.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
@@ -398,260 +376,239 @@
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/BackupsView-CEoYHxHc.js",
+        "target": "production/panel/server.py",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-Bmp98p5A.js",
+        "target": "production/panel/web/assets/BackupsView-xggP1jVZ.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/CertsView-JFLJx8BZ.js",
+        "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-yClAAKEX.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DTv4RGuz.js",
+        "target": "production/panel/web/assets/CertsView-D86bKmLc.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-ymEK73vR.js",
+        "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DF84EtD4.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/CronView-C-o-niRz.js",
+        "target": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-L-XWDwRm.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/DbsView-V-fbhIL1.js",
+        "target": "production/panel/web/assets/CronView-D1gh6bVY.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/FilesView-CVZcSgBb.js",
+        "target": "production/panel/web/assets/DbsView-C_TDZ6UZ.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/FirewallView-Ch2bzn0Q.js",
+        "target": "production/panel/web/assets/FilesView-HGluWqi6.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/HealthView-CyvUiDS3.js",
+        "target": "production/panel/web/assets/FirewallView-HnQVcRd1.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/index-D0J4gw_9.js",
+        "target": "production/panel/web/assets/HealthView-Dq1gKB_3.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/MailView-UPEfA1_D.js",
+        "target": "production/panel/web/assets/index-TSUiHK2M.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/OverviewView-BOtpbUly.js",
+        "target": "production/panel/web/assets/MailView-Dv1j4ezT.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/PackagesView-eB3zs-BA.js",
+        "target": "production/panel/web/assets/OverviewView-DOFc6DZo.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/pmaStore-DxVwBUqQ.js",
+        "target": "production/panel/web/assets/PackagesView-COnk10vS.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "scanner_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/ServicesView-PDnokBx8.js",
-        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
-        "affects_completion": true
-      },
-      {
-        "code": "scanner_failed",
-        "stage": "scan",
-        "target": "production/panel/web/assets/SettingsView-l6uKl48K.js",
-        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
-        "affects_completion": true
-      },
-      {
-        "code": "scanner_failed",
-        "stage": "scan",
-        "target": "production/panel/web/assets/SiteDetailView-DkAoPOmy.js",
+        "target": "production/panel/web/assets/pmaStore-Zwbw3VCh.js",
         "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "candidate-select",
-        "target": "production/panel/web/assets/siteShared-JVvGLvrX.js",
-        "detail": "candidate_limit_exceeded: 38 changed reviewable file(s) were not scanned because the limit is 20",
+        "target": "production/panel/web/assets/ServicesView-Bn7UpniT.js",
+        "detail": "candidate_limit_exceeded: 46 changed reviewable file(s) were not scanned because the limit is 20",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/BackupsView-CEoYHxHc.js",
+        "target": "production/panel/web/assets/BackupsView-xggP1jVZ.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-Bmp98p5A.js",
+        "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-yClAAKEX.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/CertsView-JFLJx8BZ.js",
+        "target": "production/panel/web/assets/CertsView-D86bKmLc.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DTv4RGuz.js",
+        "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DF84EtD4.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-ymEK73vR.js",
+        "target": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-L-XWDwRm.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/CronView-C-o-niRz.js",
+        "target": "production/panel/web/assets/CronView-D1gh6bVY.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/DbsView-V-fbhIL1.js",
+        "target": "production/panel/web/assets/DbsView-C_TDZ6UZ.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/FilesView-CVZcSgBb.js",
+        "target": "production/panel/web/assets/FilesView-HGluWqi6.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/FirewallView-Ch2bzn0Q.js",
+        "target": "production/panel/web/assets/FirewallView-HnQVcRd1.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/HealthView-CyvUiDS3.js",
+        "target": "production/panel/web/assets/HealthView-Dq1gKB_3.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/index-D0J4gw_9.js",
+        "target": "production/panel/web/assets/index-TSUiHK2M.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/MailView-UPEfA1_D.js",
+        "target": "production/panel/web/assets/MailView-Dv1j4ezT.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/OverviewView-BOtpbUly.js",
+        "target": "production/panel/web/assets/OverviewView-DOFc6DZo.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/PackagesView-eB3zs-BA.js",
+        "target": "production/panel/web/assets/PackagesView-COnk10vS.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "baseline-read",
-        "target": "production/panel/web/assets/pmaStore-DxVwBUqQ.js",
+        "target": "production/panel/web/assets/pmaStore-Zwbw3VCh.js",
         "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
-        "stage": "baseline-read",
-        "target": "production/panel/web/assets/ServicesView-PDnokBx8.js",
-        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "stage": "scan",
+        "target": "panel/core/cld.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
-        "stage": "baseline-read",
-        "target": "production/panel/web/assets/SettingsView-l6uKl48K.js",
-        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
-        "affects_completion": true
-      },
-      {
-        "code": "project_check_failed",
-        "stage": "baseline-read",
-        "target": "production/panel/web/assets/SiteDetailView-DkAoPOmy.js",
-        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "stage": "scan",
+        "target": "panel/api/cld.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
@@ -671,44 +628,83 @@
       {
         "code": "project_check_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/BackupsView-CEoYHxHc.js",
+        "target": "production/panel/server.py",
         "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-Bmp98p5A.js",
+        "target": "production/panel/web/assets/BackupsView-xggP1jVZ.js",
         "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/CertsView-JFLJx8BZ.js",
+        "target": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-yClAAKEX.js",
         "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       },
       {
         "code": "project_check_failed",
         "stage": "scan",
-        "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DTv4RGuz.js",
+        "target": "production/panel/web/assets/CertsView-D86bKmLc.js",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DF84EtD4.js",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-L-XWDwRm.js",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "production/panel/web/assets/CronView-D1gh6bVY.js",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "production/panel/web/assets/DbsView-C_TDZ6UZ.js",
         "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
         "affects_completion": true
       }
     ],
     "reasons_truncated": true
   },
-  "generated_at": "2026-11-05T17:13:55.116Z",
+  "generated_at": "2026-11-06T19:01:40.081Z",
   "session_id": "sess_431f58f5-b801-40e8-bcd0-b5d2f14e478b",
   "target": ".",
-  "revision": "2158f14b67a2b41809354c664e6e43441294daac",
+  "revision": "9e088a2598cf2d30ff5f04b829336131c9a4b7dd",
   "rules_version": "unavailable",
-  "diff_hash": "b28a25dd7f98f3288e995e8074b2b4bac7d6f26a303a0756ce0a65860b5667e1",
+  "diff_hash": "c04735b26ca6f7d1fc4523241e79efb8a131a441b7e0bf393c33422fe6df4ff1",
   "diff": {
     "algorithm": "sha256",
     "changed_file_count": 20,
     "changed_files": [
+      {
+        "file": "panel/api/cld.py",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 117
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "96119e1bbfd9a3c1345089fe1812fbc61cacb6ed0e6cf35b32919085594f8fa9"
+      },
       {
         "file": "panel/config.py",
         "ranges": [
@@ -717,8 +713,19 @@
             "end": 9
           }
         ],
-        "before_hash": "c12da8f77d89e462c65ec4120d79b61bd2153bb3b433dd630ddb3557ae083355",
-        "after_hash": "dd9c3f6e1dd3c7bda1ca3d7a169bbaff14cbfc768dde47a0c13b71b3032facec"
+        "before_hash": "dd9c3f6e1dd3c7bda1ca3d7a169bbaff14cbfc768dde47a0c13b71b3032facec",
+        "after_hash": "6c85486db8109984893435f2c489ea451129646e6a55ffdd82b2ec3bbf419fba"
+      },
+      {
+        "file": "panel/core/cld.py",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 192
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "7907d79186468764424454b5a4d0508f16abd3dba4df3dd72937bd1a71e5339a"
       },
       {
         "file": "production/panel/config.py",
@@ -728,11 +735,22 @@
             "end": 9
           }
         ],
-        "before_hash": "c12da8f77d89e462c65ec4120d79b61bd2153bb3b433dd630ddb3557ae083355",
-        "after_hash": "dd9c3f6e1dd3c7bda1ca3d7a169bbaff14cbfc768dde47a0c13b71b3032facec"
+        "before_hash": "dd9c3f6e1dd3c7bda1ca3d7a169bbaff14cbfc768dde47a0c13b71b3032facec",
+        "after_hash": "6c85486db8109984893435f2c489ea451129646e6a55ffdd82b2ec3bbf419fba"
       },
       {
-        "file": "production/panel/web/assets/BackupsView-CEoYHxHc.js",
+        "file": "production/panel/server.py",
+        "ranges": [
+          {
+            "start": 14,
+            "end": 14
+          }
+        ],
+        "before_hash": "87ce532b3c360a695acfdc8f247db3b4535d8f3c24a44f64a8130915e05b1c0a",
+        "after_hash": "0c9ce0a06a7b2faf5d1328168cc3bba52c51873b798489118f28739a7aa88a3c"
+      },
+      {
+        "file": "production/panel/web/assets/BackupsView-xggP1jVZ.js",
         "ranges": [
           {
             "start": 1,
@@ -740,10 +758,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "64d033bf6f478f54ae32b824a67288c354105b3a3df5fddbe22a94e06a02d084"
+        "after_hash": "b2e52bce92fc79d9824d58bfb7c1c0c075405607a4d25a88383e4ddc47b619d9"
       },
       {
-        "file": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-Bmp98p5A.js",
+        "file": "production/panel/web/assets/BrandLogo.vue_vue_type_script_setup_true_lang-yClAAKEX.js",
         "ranges": [
           {
             "start": 1,
@@ -751,10 +769,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "aafb8d214daa4ed5a97ed176fe5386a4b8930eabe52ba1eaceb810148b8addff"
+        "after_hash": "425f6e960590ac37932f7d17484b004813df9f47df27752f070f02441152c0b4"
       },
       {
-        "file": "production/panel/web/assets/CertsView-JFLJx8BZ.js",
+        "file": "production/panel/web/assets/CertsView-D86bKmLc.js",
         "ranges": [
           {
             "start": 1,
@@ -762,10 +780,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "3cac4c74b6dac67715750486e48d60307fd3be45839ddd64b12f3e4bf1ddd08e"
+        "after_hash": "c2a8965eb91ff9e8cec158bc01a895737100ca6a33738baf5638a1ee293eab54"
       },
       {
-        "file": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DTv4RGuz.js",
+        "file": "production/panel/web/assets/CodeEditor.vue_vue_type_style_index_0_lang-DF84EtD4.js",
         "ranges": [
           {
             "start": 1,
@@ -773,10 +791,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "b59105e47102307b6fb5e4d81614fd9967afbf45565b72ab8bdb621f1bb8be04"
+        "after_hash": "214e4c901251926cb2f902d01b838ab9547e5c36d58490a76b06d7eba8a6ea91"
       },
       {
-        "file": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-ymEK73vR.js",
+        "file": "production/panel/web/assets/CredRow.vue_vue_type_script_setup_true_lang-L-XWDwRm.js",
         "ranges": [
           {
             "start": 1,
@@ -784,10 +802,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "a22bd93fdc94164d224212716fb44f2e66a7b54ce763c0dc7ff9d9def2c32002"
+        "after_hash": "330e987f8b58c5591d84e7b5da5ef984e71a7743777dc636fb3b14b4ff4e6011"
       },
       {
-        "file": "production/panel/web/assets/CronView-C-o-niRz.js",
+        "file": "production/panel/web/assets/CronView-D1gh6bVY.js",
         "ranges": [
           {
             "start": 1,
@@ -795,10 +813,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "eb4778178eeb62cc997b2d193b36fd6b1cc79ee2fc0bbabb17e44d6f5da5f432"
+        "after_hash": "4351ebc5c1ae848f361f52b02748f224f65f3bb773b8800ea603e816739c3503"
       },
       {
-        "file": "production/panel/web/assets/DbsView-V-fbhIL1.js",
+        "file": "production/panel/web/assets/DbsView-C_TDZ6UZ.js",
         "ranges": [
           {
             "start": 1,
@@ -806,10 +824,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "df18c21ea1d5ef93113db4c8b33b62cef90bf6856333075141b7d11a818e4dd0"
+        "after_hash": "a1d350a8035210494bd32efbded2a58ab0599469ddd2002b13e4c78707853982"
       },
       {
-        "file": "production/panel/web/assets/FilesView-CVZcSgBb.js",
+        "file": "production/panel/web/assets/FilesView-HGluWqi6.js",
         "ranges": [
           {
             "start": 1,
@@ -817,10 +835,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "cf96bf229937acb81f4f0a5b96350a36a3955da6f5fcd03ce08ccb78e64deff5"
+        "after_hash": "c15a4f478bfb9672b34c2e4154b6a43afe99e9d66c52f7d68e3f19e87463c6b1"
       },
       {
-        "file": "production/panel/web/assets/FirewallView-Ch2bzn0Q.js",
+        "file": "production/panel/web/assets/FirewallView-HnQVcRd1.js",
         "ranges": [
           {
             "start": 1,
@@ -828,10 +846,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "abdc723140544871bbcfb97c74304d37d3bc0346e8f6b5f0d99a7f3bd2673f6d"
+        "after_hash": "28209e5ce79b79e58a97c37cc0103fefbbe8c1b3f39563f30d7085eff9f96d13"
       },
       {
-        "file": "production/panel/web/assets/HealthView-CyvUiDS3.js",
+        "file": "production/panel/web/assets/HealthView-Dq1gKB_3.js",
         "ranges": [
           {
             "start": 1,
@@ -839,10 +857,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "03fea3aa78f3e754b7b1c2ad3cc2f1b6521ead1098c42a01d7740bcac5a9160e"
+        "after_hash": "868722c1f4347b0566e8c799ce36c2b6fdc57d85146bc84b132fcc65c98c5831"
       },
       {
-        "file": "production/panel/web/assets/index-D0J4gw_9.js",
+        "file": "production/panel/web/assets/index-TSUiHK2M.js",
         "ranges": [
           {
             "start": 1,
@@ -850,10 +868,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "22eefcb7deb7d978c556e13fd1761f75dcc15c387a022dcad372a4bf3a667560"
+        "after_hash": "18ea445e4d750193ca788513795b71352907c66bcc7c4c3e911dc9d4f5f7b9a4"
       },
       {
-        "file": "production/panel/web/assets/MailView-UPEfA1_D.js",
+        "file": "production/panel/web/assets/MailView-Dv1j4ezT.js",
         "ranges": [
           {
             "start": 1,
@@ -861,10 +879,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "b77b20b916781967f400e95d926318684af6aa24c08450044185a282320e615d"
+        "after_hash": "da6898977b76dd2f865c7914690b563654da53347aa3bb085daa1963a9860029"
       },
       {
-        "file": "production/panel/web/assets/OverviewView-BOtpbUly.js",
+        "file": "production/panel/web/assets/OverviewView-DOFc6DZo.js",
         "ranges": [
           {
             "start": 1,
@@ -872,10 +890,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "4d86a29afabb6302fcc56c739168b0f9c2348fca2393c65e3ac685fe0ccbaefb"
+        "after_hash": "f26ad254cd4899d8aa05fe00a122268dd869bc82e9dc3d93e6e76f4d0095fa6a"
       },
       {
-        "file": "production/panel/web/assets/PackagesView-eB3zs-BA.js",
+        "file": "production/panel/web/assets/PackagesView-COnk10vS.js",
         "ranges": [
           {
             "start": 1,
@@ -883,10 +901,10 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "38362abd08bd945361505011abe96bdbeb365e2f839eb45445a67b5cc6387ede"
+        "after_hash": "accc06ac71d68b6e2809a3d64919b9bc58948f9fa97de066d1d5f6503f16b6e6"
       },
       {
-        "file": "production/panel/web/assets/pmaStore-DxVwBUqQ.js",
+        "file": "production/panel/web/assets/pmaStore-Zwbw3VCh.js",
         "ranges": [
           {
             "start": 1,
@@ -894,47 +912,14 @@
           }
         ],
         "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "eab0cef9aa757ca7cb89346052116dcb3c3ceaac8ed5d91841524cb52757940c"
-      },
-      {
-        "file": "production/panel/web/assets/ServicesView-PDnokBx8.js",
-        "ranges": [
-          {
-            "start": 1,
-            "end": 2
-          }
-        ],
-        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "b397f550e1eb5ad1960df7d15d6274066380cefb458156ccfe734dddba08dd79"
-      },
-      {
-        "file": "production/panel/web/assets/SettingsView-l6uKl48K.js",
-        "ranges": [
-          {
-            "start": 1,
-            "end": 3
-          }
-        ],
-        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "4ad3a2b54c87e269bd055dce59463ec2eced500ca2a5a9f8115b0333f9fda82c"
-      },
-      {
-        "file": "production/panel/web/assets/SiteDetailView-DkAoPOmy.js",
-        "ranges": [
-          {
-            "start": 1,
-            "end": 3
-          }
-        ],
-        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "7de3903ae2932bb80594b483ccefd2bf4a24ded78006e121f88ac75b84144472"
+        "after_hash": "27c4b4eb9082f10ac42a50dea8f39f60faaff85cafff4daa048fa9dbc04ab4ec"
       }
     ]
   },
   "timing": {
-    "started_at": "2026-11-05T17:13:52.006Z",
-    "completed_at": "2026-11-05T17:13:55.116Z",
-    "duration_ms": 3110,
+    "started_at": "2026-11-06T19:01:30.411Z",
+    "completed_at": "2026-11-06T19:01:40.081Z",
+    "duration_ms": 9670,
     "measurement": "hook_wall_clock"
   },
   "tokens": {
@@ -949,8 +934,8 @@
     "profile": "gate",
     "operation": "Stop",
     "outcome": "partial/INCONCLUSIVE",
-    "latencyMs": 3110,
-    "peakMemoryBytes": 93847552,
+    "latencyMs": 9670,
+    "peakMemoryBytes": 92532736,
     "memoryMeasurement": "max-observed-process-rss",
     "scannedFiles": 0,
     "cache": {
@@ -974,11 +959,102 @@
     "static_fix_verification": "observed_static_only",
     "runtime_verification": "not_performed"
   },
-  "finding_events": [],
+  "finding_events": [
+    {
+      "finding_id": "mimosa-98ebe82c892a9dc9d7d6b6bc",
+      "file": "panel/core/cld.py",
+      "line": 51,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SSRF 服务端请求伪造",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-11-06T18:32:15.017Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "98f3aa87b7ac287955b1f79a6281a609b3974ef8dcdadaeb5b67554bf8551a4c",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-81d79ffef693757a896b3df6",
+      "file": "panel/core/cld.py",
+      "line": 56,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "路径穿越",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-11-06T18:32:15.017Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "c5d0e63c0fa138dac24b49246c7c6c3d8dce3b365783a3877a27faa74fe7fa8e",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-98ebe82c892a9dc9d7d6b6bc",
+      "file": "panel/core/cld.py",
+      "line": 51,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SSRF 服务端请求伪造",
+      "status": "fixed_candidate",
+      "decision": "repair_observed",
+      "at": "2026-11-06T18:33:07.112Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "98f3aa87b7ac287955b1f79a6281a609b3974ef8dcdadaeb5b67554bf8551a4c",
+        "candidate_before_evidence_hash": "98f3aa87b7ac287955b1f79a6281a609b3974ef8dcdadaeb5b67554bf8551a4c",
+        "post_change_evidence_hash_at_previous_location": "ca2dfc88de164f512bd4426088cd0b0e379fadca75bac276c931d3053542b392",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-98ebe82c892a9dc9d7d6b6bc",
+      "file": "panel/core/cld.py",
+      "line": 51,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SSRF 服务端请求伪造",
+      "status": "static_verified",
+      "decision": "static_rescan_passed",
+      "at": "2026-11-06T18:33:07.112Z",
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "98f3aa87b7ac287955b1f79a6281a609b3974ef8dcdadaeb5b67554bf8551a4c",
+        "candidate_before_evidence_hash": "98f3aa87b7ac287955b1f79a6281a609b3974ef8dcdadaeb5b67554bf8551a4c",
+        "post_change_evidence_hash_at_previous_location": "ca2dfc88de164f512bd4426088cd0b0e379fadca75bac276c931d3053542b392",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    }
+  ],
   "findings": [],
   "artifacts": {
-    "immutable_report": ".mimosa/reports/task-review-sess_431f58f5-b801-40e8-bcd0-b5d2f14e478b-20261105T171355116Z-37032-21974aa19cfd.json",
+    "immutable_report": ".mimosa/reports/task-review-sess_431f58f5-b801-40e8-bcd0-b5d2f14e478b-20261106T190140081Z-46416-58c649763587.json",
     "latest_report": ".mimosa/reports/task-review-sess_431f58f5-b801-40e8-bcd0-b5d2f14e478b.json",
-    "history_summary": ".mimosa/history/run-20261105T171355116Z-37032-21974aa19cfd.json"
+    "history_summary": ".mimosa/history/run-20261106T190140081Z-46416-58c649763587.json"
   }
 }

@@ -125,6 +125,22 @@ def _worker(site, db_name, db_user, db_password, admin_token):
         _log("Скачиваю установщик движка…")
         script = _download_installer(tmp)
 
+        # чистим корневую папку: установщик клонирует движок git-ом в
+        # docroot — непустая папка (заглушка index.html от панели) сломает
+        # клонирование. confirm_overwrite уже проверен вызывающим кодом.
+        if os.path.isdir(docroot):
+            _log("Очищаю корневую папку сайта перед установкой…")
+            for name in os.listdir(docroot):
+                pth = os.path.join(docroot, name)
+                try:
+                    if os.path.isdir(pth) and not os.path.islink(pth):
+                        shutil.rmtree(pth, ignore_errors=True)
+                    else:
+                        os.remove(pth)
+                except OSError as e:
+                    raise RuntimeError("не удалось очистить %s: %s"
+                                       % (name, e))
+
         _log("Запускаю установку Omro (PANEL_MODE=1) — это займёт несколько минут…")
         env = dict(os.environ)
         env.update({
